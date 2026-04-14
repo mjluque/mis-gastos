@@ -23,9 +23,9 @@ const path = require("path");
 const app = express();
 app.use(express.json());
 
-const BOT_TOKEN   = process.env.BOT_TOKEN;
+const BOT_TOKEN = process.env.BOT_TOKEN;
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
-const API_SECRET  = process.env.API_SECRET || "cambiar-esto";
+const API_SECRET = process.env.API_SECRET || "cambiar-esto";
 const ALLOWED_IDS = process.env.ALLOWED_IDS
   ? process.env.ALLOWED_IDS.split(",").map((id) => id.trim())
   : [];
@@ -64,25 +64,25 @@ function fmt(n) {
 }
 
 const MONTHS = [
-  "Enero","Febrero","Marzo","Abril","Mayo","Junio",
-  "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre",
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
 ];
 
 const CATEGORIES = [
-  "Alimentación","Transporte","Vivienda","Salud","Entretenimiento",
-  "Ropa","Educación","Servicios","Restaurantes","Otros",
+  "Alimentación", "Transporte", "Vivienda", "Salud", "Entretenimiento",
+  "Ropa", "Educación", "Servicios", "Restaurantes", "Otros",
 ];
 
 function guessCategory(text) {
   const t = text.toLowerCase();
   if (/super|mercado|carrefour|coto|jumbo|dia|verdura|panadería/.test(t)) return "Alimentación";
-  if (/sube|colectivo|tren|taxi|uber|remis|nafta|combustible/.test(t))    return "Transporte";
+  if (/sube|colectivo|tren|taxi|uber|remis|nafta|combustible/.test(t)) return "Transporte";
   if (/alquiler|expensas|luz|edesur|gas|metrogas|agua|internet|cable/.test(t)) return "Vivienda";
-  if (/farmacia|médico|medico|obra social|dentista|hospital/.test(t))     return "Salud";
-  if (/netflix|spotify|cine|teatro|disney|stream/.test(t))                return "Entretenimiento";
-  if (/ropa|zapatillas|calzado|indumentaria/.test(t))                     return "Ropa";
-  if (/curso|libro|universidad|colegio|escuela/.test(t))                  return "Educación";
-  if (/resto|restaurant|bar|café|cafe|pizza|sushi/.test(t))               return "Restaurantes";
+  if (/farmacia|médico|medico|obra social|dentista|hospital/.test(t)) return "Salud";
+  if (/netflix|spotify|cine|teatro|disney|stream/.test(t)) return "Entretenimiento";
+  if (/ropa|zapatillas|calzado|indumentaria/.test(t)) return "Ropa";
+  if (/curso|libro|universidad|colegio|escuela/.test(t)) return "Educación";
+  if (/resto|restaurant|bar|café|cafe|pizza|sushi/.test(t)) return "Restaurantes";
   return null;
 }
 
@@ -96,11 +96,11 @@ function parseExpense(text) {
   if (!amount || isNaN(amount)) return null;
 
   let typeFound = "Variable";
-  let catFound  = null;
+  let catFound = null;
   const descParts = [];
 
   for (let i = 1; i < parts.length; i++) {
-    const w    = parts[i];
+    const w = parts[i];
     const wCap = w.charAt(0).toUpperCase() + w.slice(1);
     if (TYPES.includes(w)) {
       typeFound = wCap;
@@ -112,12 +112,12 @@ function parseExpense(text) {
   }
 
   const desc = descParts.join(" ") || "Gasto";
-  const cat  = catFound || guessCategory(desc) || "Otros";
+  const cat = catFound || guessCategory(desc) || "Otros";
 
   return {
-    id:   Date.now(),
+    id: Date.now(),
     desc,
-    amt:  amount,
+    amt: amount,
     cat,
     type: typeFound,
     date: new Date().toISOString().split("T")[0],
@@ -129,24 +129,24 @@ function parseExpense(text) {
 async function sendMessage(chatId, text) {
   const { default: fetch } = await import("node-fetch");
   await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-    method:  "POST",
+    method: "POST",
     headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify({ chat_id: chatId, text, parse_mode: "Markdown" }),
+    body: JSON.stringify({ chat_id: chatId, text, parse_mode: "Markdown" }),
   });
 }
 
 // ── Comandos ──────────────────────────────────────────────────────────────────
 
 function cmdResumen(chatId, userId) {
-  const data     = loadUser(userId);
-  const key      = getMonthKey();
+  const data = loadUser(userId);
+  const key = getMonthKey();
   const expenses = data[key] || [];
   if (!expenses.length) return sendMessage(chatId, "📭 Sin gastos registrados este mes.");
 
-  const total  = expenses.reduce((s, e) => s + e.amt, 0);
-  const byCat  = {};
+  const total = expenses.reduce((s, e) => s + e.amt, 0);
+  const byCat = {};
   expenses.forEach((e) => { byCat[e.cat] = (byCat[e.cat] || 0) + e.amt; });
-  const lines  = Object.entries(byCat)
+  const lines = Object.entries(byCat)
     .sort((a, b) => b[1] - a[1])
     .map(([cat, amt]) => `  • ${cat}: *${fmt(amt)}*`)
     .join("\n");
@@ -157,8 +157,8 @@ function cmdResumen(chatId, userId) {
 }
 
 function cmdLista(chatId, userId) {
-  const data     = loadUser(userId);
-  const key      = getMonthKey();
+  const data = loadUser(userId);
+  const key = getMonthKey();
   const expenses = (data[key] || []).slice(-8).reverse();
   if (!expenses.length) return sendMessage(chatId, "📭 Sin gastos registrados este mes.");
   const lines = expenses.map((e) => `• ${e.desc} — *${fmt(e.amt)}* _(${e.cat})_`).join("\n");
@@ -188,10 +188,10 @@ app.post("/webhook", async (req, res) => {
   const update = req.body;
   if (!update.message) return;
 
-  const msg    = update.message;
+  const msg = update.message;
   const chatId = msg.chat.id;
   const userId = String(msg.from.id);
-  const text   = (msg.text || "").trim();
+  const text = (msg.text || "").trim();
 
   // Autorización
   if (ALLOWED_IDS.length > 0 && !ALLOWED_IDS.includes(userId)) {
@@ -199,7 +199,7 @@ app.post("/webhook", async (req, res) => {
   }
 
   if (text.startsWith("/resumen")) return cmdResumen(chatId, userId);
-  if (text.startsWith("/lista"))   return cmdLista(chatId, userId);
+  if (text.startsWith("/lista")) return cmdLista(chatId, userId);
   if (text.startsWith("/start") || text.startsWith("/ayuda")) return cmdAyuda(chatId, userId);
 
   if (/^gasto\s+/i.test(text)) {
@@ -209,7 +209,7 @@ app.post("/webhook", async (req, res) => {
     }
 
     const data = loadUser(userId);
-    const key  = getMonthKey();
+    const key = getMonthKey();
     if (!data[key]) data[key] = [];
     data[key].push(expense);
     saveUser(userId, data);
@@ -262,9 +262,9 @@ async function registerWebhook() {
   const { default: fetch } = await import("node-fetch");
   const url = `${WEBHOOK_URL}/webhook`;
   const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/setWebhook`, {
-    method:  "POST",
+    method: "POST",
     headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify({ url }),
+    body: JSON.stringify({ url }),
   });
   const json = await res.json();
   console.log("Webhook:", json.ok ? "✅ registrado" : "❌ " + json.description);
@@ -277,3 +277,19 @@ app.listen(PORT, async () => {
   console.log(`🤖 Bot corriendo en puerto ${PORT}`);
   await registerWebhook();
 });
+
+
+// Al iniciar la app, intentar cargar desde el servidor
+async function syncFromServer() {
+  try {
+    const res = await fetch('https://TU-URL.railway.app/api/gastos');
+    const serverData = await res.json();
+    // Mergear con datos locales (el servidor es fuente de verdad)
+    Object.assign(data, serverData);
+    save();
+    renderResumen();
+  } catch (e) {
+    console.log('Sin conexión al servidor, usando datos locales');
+  }
+}
+syncFromServer();
