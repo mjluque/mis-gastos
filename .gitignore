@@ -1,0 +1,15 @@
+# Entorno local — nunca subir a GitHub
+.env
+DEV_LOCAL_MAC.md
+
+# Datos de usuarios
+data/
+
+# Dependencias
+node_modules/
+
+# macOS
+.DS_Store
+
+# Credenciales
+miscuentitas-11ce41b35c38.json
