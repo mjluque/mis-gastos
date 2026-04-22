@@ -362,7 +362,7 @@ app.listen(PORT, async () => {
 });
 
 
-```javascript```
+```javascript
 // Al iniciar la app, intentar cargar desde el servidor
 async function syncFromServer() {
   try {
@@ -377,4 +377,4 @@ async function syncFromServer() {
   }
 }
 syncFromServer();
-```----```
+----```
