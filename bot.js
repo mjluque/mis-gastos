@@ -362,19 +362,19 @@ app.listen(PORT, async () => {
 });
 
 
-```javascript
+
 // Al iniciar la app, intentar cargar desde el servidor
-async function syncFromServer() {
-  try {
-    const res = await fetch('https://mis-gastos-production-ca09.up.railway.app/api/gastos');
-    const serverData = await res.json();
-    // Mergear con datos locales (el servidor es fuente de verdad)
-    Object.assign(data, serverData);
-    save();
-    renderResumen();
-  } catch (e) {
-    console.log('Sin conexión al servidor, usando datos locales');
-  }
-}
-syncFromServer();
-----```
+// async function syncFromServer() {
+//   try {
+//     const res = await fetch('https://mis-gastos-production-ca09.up.railway.app/api/gastos');
+//     const serverData = await res.json();
+//     // Mergear con datos locales (el servidor es fuente de verdad)
+//     Object.assign(data, serverData);
+//     save();
+//     renderResumen();
+//   } catch (e) {
+//     console.log('Sin conexión al servidor, usando datos locales');
+//   }
+// }
+// syncFromServer();
+
