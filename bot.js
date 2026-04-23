@@ -37,8 +37,8 @@ const GOOGLE_CREDS = process.env.GOOGLE_CREDENTIALS
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  // En Railway, Postgres usa SSL. Localmente no.
-  ssl: process.env.DATABASE_URL?.includes("railway")
+  // SSL requerido en producción (Railway), desactivado en local
+  ssl: process.env.NODE_ENV === "production"
     ? { rejectUnauthorized: false }
     : false,
 });
@@ -388,6 +388,7 @@ app.listen(PORT, async () => {
   }
   await registerWebhook();
 });
+
 
 
 // Al iniciar la app, intentar cargar desde el servidor

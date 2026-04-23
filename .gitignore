@@ -1,5 +1,6 @@
 # Entorno local — nunca subir a GitHub
 .env
+.env.example
 DEV_LOCAL_MAC.md
 
 # Datos de usuarios
