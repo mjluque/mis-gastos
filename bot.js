@@ -13,22 +13,22 @@
 
 require("dotenv").config();
 
-const express = require("express");
-const path = require("path");
-const { Pool } = require("pg");
+const express    = require("express");
+const path       = require("path");
+const { Pool }   = require("pg");
 const { google } = require("googleapis");
 
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
-const BOT_TOKEN = process.env.BOT_TOKEN;
-const WEBHOOK_URL = process.env.WEBHOOK_URL;
-const API_SECRET = process.env.API_SECRET || "cambiar-esto";
-const ALLOWED_IDS = process.env.ALLOWED_IDS
+const BOT_TOKEN    = process.env.BOT_TOKEN;
+const WEBHOOK_URL  = process.env.WEBHOOK_URL;
+const API_SECRET   = process.env.API_SECRET || "cambiar-esto";
+const ALLOWED_IDS  = process.env.ALLOWED_IDS
   ? process.env.ALLOWED_IDS.split(",").map((id) => id.trim())
   : [];
-const SHEET_ID = process.env.GOOGLE_SHEET_ID;
+const SHEET_ID     = process.env.GOOGLE_SHEET_ID;
 const GOOGLE_CREDS = process.env.GOOGLE_CREDENTIALS
   ? JSON.parse(process.env.GOOGLE_CREDENTIALS)
   : null;
@@ -84,10 +84,10 @@ async function loadUser(userId) {
     const key = `${year}-${jsMonth}`;
     if (!grouped[key]) grouped[key] = [];
     grouped[key].push({
-      id: row.id,
+      id:   row.id,
       desc: row.desc,
-      amt: row.amt,
-      cat: row.cat,
+      amt:  row.amt,
+      cat:  row.cat,
       type: row.type,
       date: row.date,
     });
@@ -103,6 +103,22 @@ async function saveExpense(userId, expense) {
      ON CONFLICT (id) DO NOTHING`,
     [expense.id, String(userId), expense.desc, expense.amt, expense.cat, expense.type, expense.date]
   );
+}
+
+// Actualiza campos de un gasto existente (solo los que se provean)
+async function updateExpense(userId, id, fields) {
+  const { desc, amt, cat, type, date } = fields;
+  const { rowCount } = await pool.query(
+    `UPDATE expenses
+     SET description = COALESCE($1, description),
+         amount      = COALESCE($2, amount),
+         category    = COALESCE($3, category),
+         type        = COALESCE($4, type),
+         date        = COALESCE($5::date, date)
+     WHERE id = $6 AND user_id = $7`,
+    [desc || null, amt || null, cat || null, type || null, date || null, id, String(userId)]
+  );
+  return rowCount > 0;
 }
 
 // Total del mes para el mensaje de confirmación
@@ -158,8 +174,8 @@ async function ensureSheetStructure() {
     const meta = await sheetsClient.spreadsheets.get({ spreadsheetId: SHEET_ID });
     const existing = meta.data.sheets.map((s) => s.properties.title);
     const required = [
-      { title: "Gastos", headers: ["ID", "Usuario", "Fecha", "Descripción", "Monto", "Categoría", "Tipo", "Mes", "Año"] },
-      { title: "Resumen_Mensual", headers: ["Usuario", "Año", "Mes", "Categoría", "Total"] },
+      { title: "Gastos",          headers: ["ID","Usuario","Fecha","Descripción","Monto","Categoría","Tipo","Mes","Año"] },
+      { title: "Resumen_Mensual", headers: ["Usuario","Año","Mes","Categoría","Total"] },
     ];
     const toCreate = required.filter((r) => !existing.includes(r.title));
     if (toCreate.length) {
@@ -186,9 +202,9 @@ async function ensureSheetStructure() {
 async function appendToSheet(userName, expense) {
   const client = await getSheetsClient();
   if (!client) return;
-  const date = new Date(expense.date);
-  const year = date.getFullYear();
-  const monthName = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"][date.getMonth()];
+  const date      = new Date(expense.date);
+  const year      = date.getFullYear();
+  const monthName = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"][date.getMonth()];
   try {
     await client.spreadsheets.values.append({
       spreadsheetId: SHEET_ID, range: "Gastos!A:I", valueInputOption: "USER_ENTERED",
@@ -203,7 +219,7 @@ async function appendToSheet(userName, expense) {
 async function updateMonthlyResume(client, userName, year, monthName, cat, amt) {
   const res = await client.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "Resumen_Mensual!A:E" }).catch(() => null);
   const rows = res?.data?.values || [];
-  const idx = rows.findIndex((r, i) => i > 0 && r[0] === userName && String(r[1]) === String(year) && r[2] === monthName && r[3] === cat);
+  const idx  = rows.findIndex((r, i) => i > 0 && r[0] === userName && String(r[1]) === String(year) && r[2] === monthName && r[3] === cat);
   if (idx >= 0) {
     await client.spreadsheets.values.update({
       spreadsheetId: SHEET_ID, range: `Resumen_Mensual!E${idx + 1}`,
@@ -225,37 +241,49 @@ function getMonthKey(date = new Date()) {
 function fmt(n) {
   return "$" + Number(n).toLocaleString("es-AR");
 }
-const MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-const CATEGORIES = ["Alimentación", "Transporte", "Vivienda", "Salud", "Entretenimiento", "Ropa", "Educación", "Servicios", "Restaurantes", "Otros"];
+const MONTHS     = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+const CATEGORIES = ["Alimentación","Transporte","Vivienda","Salud","Entretenimiento","Ropa","Educación","Servicios","Restaurantes","Otros"];
 
 function guessCategory(text) {
   const t = text.toLowerCase();
   if (/super|mercado|carrefour|coto|jumbo|dia|verdura|panadería/.test(t)) return "Alimentación";
-  if (/sube|colectivo|tren|taxi|uber|remis|nafta|combustible/.test(t)) return "Transporte";
+  if (/sube|colectivo|tren|taxi|uber|remis|nafta|combustible/.test(t))    return "Transporte";
   if (/alquiler|expensas|luz|edesur|gas|metrogas|agua|internet|cable/.test(t)) return "Vivienda";
-  if (/farmacia|médico|medico|obra social|dentista|hospital/.test(t)) return "Salud";
-  if (/netflix|spotify|cine|teatro|disney|stream/.test(t)) return "Entretenimiento";
-  if (/ropa|zapatillas|calzado|indumentaria/.test(t)) return "Ropa";
-  if (/curso|libro|universidad|colegio|escuela/.test(t)) return "Educación";
-  if (/resto|restaurant|bar|café|cafe|pizza|sushi/.test(t)) return "Restaurantes";
+  if (/farmacia|médico|medico|obra social|dentista|hospital/.test(t))     return "Salud";
+  if (/netflix|spotify|cine|teatro|disney|stream/.test(t))                return "Entretenimiento";
+  if (/ropa|zapatillas|calzado|indumentaria/.test(t))                     return "Ropa";
+  if (/curso|libro|universidad|colegio|escuela/.test(t))                  return "Educación";
+  if (/resto|restaurant|bar|café|cafe|pizza|sushi/.test(t))               return "Restaurantes";
   return null;
 }
 
 function parseExpense(text) {
   const TYPES = ["fijo", "variable", "extraordinario"];
-  const parts = text.trim().toLowerCase().replace(/^gasto\s+/, "").split(/\s+/);
+  const parts  = text.trim().toLowerCase().replace(/^gasto\s+/, "").split(/\s+/);
   const amount = parseFloat(parts[0].replace(",", ".").replace(/[^0-9.]/g, ""));
   if (!amount || isNaN(amount)) return null;
-  let typeFound = "Variable", catFound = null;
+  let typeFound = "Variable", catFound = null, dateFound = null;
   const descParts = [];
   for (let i = 1; i < parts.length; i++) {
     const w = parts[i], wCap = w.charAt(0).toUpperCase() + w.slice(1);
-    if (TYPES.includes(w)) { typeFound = wCap; }
-    else if (CATEGORIES.map((c) => c.toLowerCase()).includes(w)) { catFound = CATEGORIES.find((c) => c.toLowerCase() === w); }
-    else { descParts.push(wCap); }
+    // Detectar fecha en formato DD/MM, DD/MM/YYYY o YYYY-MM-DD
+    if (/^\d{1,2}\/\d{1,2}(\/\d{2,4})?$/.test(w)) {
+      const [d, m, y] = w.split("/");
+      const year = y ? (y.length === 2 ? "20" + y : y) : new Date().getFullYear();
+      dateFound = `${year}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    } else if (/^\d{4}-\d{2}-\d{2}$/.test(w)) {
+      dateFound = w;
+    } else if (TYPES.includes(w)) {
+      typeFound = wCap;
+    } else if (CATEGORIES.map((c) => c.toLowerCase()).includes(w)) {
+      catFound = CATEGORIES.find((c) => c.toLowerCase() === w);
+    } else {
+      descParts.push(wCap);
+    }
   }
   const desc = descParts.join(" ") || "Gasto";
-  return { id: Date.now(), desc, amt: amount, cat: catFound || guessCategory(desc) || "Otros", type: typeFound, date: new Date().toISOString().split("T")[0] };
+  const date = dateFound || new Date().toISOString().split("T")[0];
+  return { id: Date.now(), desc, amt: amount, cat: catFound || guessCategory(desc) || "Otros", type: typeFound, date };
 }
 
 // ── Telegram API ──────────────────────────────────────────────────────────────
@@ -272,7 +300,7 @@ async function sendMessage(chatId, text) {
 // ── Comandos ──────────────────────────────────────────────────────────────────
 
 async function cmdResumen(chatId, userId) {
-  const now = new Date();
+  const now      = new Date();
   const sqlMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const { rows } = await pool.query(
     `SELECT category AS cat, SUM(amount)::float AS total, COUNT(*) AS cnt
@@ -290,15 +318,99 @@ async function cmdResumen(chatId, userId) {
 async function cmdLista(chatId, userId) {
   const expenses = await recentExpenses(userId, 8);
   if (!expenses.length) return sendMessage(chatId, "📭 Sin gastos este mes.");
-  sendMessage(chatId, `📋 *Últimos gastos:*\n\n${expenses.map((e) => `• ${e.desc} — *${fmt(e.amt)}* _(${e.cat})_`).join("\n")}`);
+  const lines = expenses.map((e) =>
+    `• \`${e.id}\` ${e.desc} — *${fmt(e.amt)}* _(${e.cat} · ${e.date})_`
+  ).join("\n");
+  sendMessage(chatId, `📋 *Últimos gastos:*\n\n${lines}\n\n_Usá /editar para modificar uno_`);
+}
+
+async function cmdEditar(chatId, userId, text) {
+  // Formato: /editar <id> <campo> <valor>
+  // Ejemplos:
+  //   /editar 1710000001 monto 3500
+  //   /editar 1710000001 desc almuerzo trabajo
+  //   /editar 1710000001 categoria alimentacion
+  //   /editar 1710000001 tipo fijo
+  //   /editar 1710000001 fecha 15/04
+  const parts = text.replace(/^\/editar\s*/i, "").trim().split(/\s+/);
+  if (parts.length < 3 || !parts[0]) {
+    return sendMessage(chatId,
+      `✏️ *Cómo editar un gasto:*\n\n` +
+      `\`/editar [id] [campo] [valor]\`\n\n` +
+      `*Campos:* desc · monto · categoria · tipo · fecha\n\n` +
+      `*Ejemplos:*\n` +
+      `\`/editar 1710000001 monto 3500\`\n` +
+      `\`/editar 1710000001 desc almuerzo trabajo\`\n` +
+      `\`/editar 1710000001 categoria alimentacion\`\n` +
+      `\`/editar 1710000001 fecha 15/04\`\n\n` +
+      `_Usá /lista para ver los IDs_`
+    );
+  }
+
+  const [rawId, field, ...valueParts] = parts;
+  const id    = parseInt(rawId);
+  const value = valueParts.join(" ");
+
+  if (isNaN(id)) return sendMessage(chatId, "❌ ID inválido. Usá /lista para ver los IDs.");
+
+  const fields = {};
+  switch (field) {
+    case "monto": case "amt": case "amount": {
+      const n = parseFloat(value.replace(",", "."));
+      if (!n || isNaN(n)) return sendMessage(chatId, "❌ Monto inválido.");
+      fields.amt = n; break;
+    }
+    case "desc": case "descripcion": case "descripción": {
+      if (!value) return sendMessage(chatId, "❌ Escribí la nueva descripción.");
+      fields.desc = value.charAt(0).toUpperCase() + value.slice(1); break;
+    }
+    case "categoria": case "categoría": case "cat": {
+      const cat = CATEGORIES.find((c) => c.toLowerCase() === value.toLowerCase());
+      if (!cat) return sendMessage(chatId, `❌ Categoría inválida.\nOpciones: ${CATEGORIES.join(", ")}`);
+      fields.cat = cat; break;
+    }
+    case "tipo": case "type": {
+      const tipos = { fijo: "Fijo", variable: "Variable", extraordinario: "Extraordinario" };
+      const t = tipos[value.toLowerCase()];
+      if (!t) return sendMessage(chatId, "❌ Tipo inválido. Opciones: fijo, variable, extraordinario");
+      fields.type = t; break;
+    }
+    case "fecha": case "date": {
+      let dateFound = null;
+      if (/^\d{1,2}\/\d{1,2}(\/\d{2,4})?$/.test(value)) {
+        const [d, m, y] = value.split("/");
+        const year = y ? (y.length === 2 ? "20" + y : y) : new Date().getFullYear();
+        dateFound = `${year}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+      } else if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        dateFound = value;
+      }
+      if (!dateFound) return sendMessage(chatId, "❌ Fecha inválida. Usá DD/MM o DD/MM/YYYY.");
+      fields.date = dateFound; break;
+    }
+    default:
+      return sendMessage(chatId, "❌ Campo inválido. Opciones: desc, monto, categoria, tipo, fecha");
+  }
+
+  const updated = await updateExpense(userId, id, fields);
+  if (!updated) return sendMessage(chatId, "❌ No encontré ese gasto. Verificá el ID con /lista.");
+  sendMessage(chatId, `✅ *Gasto actualizado.*\n_Usá /lista para verificar._`);
 }
 
 async function cmdAyuda(chatId, userId) {
   sendMessage(chatId,
-    `ℹ️ *Cómo registrar un gasto:*\n\n\`gasto [monto] [descripción] [categoría] [tipo]\`\n\n` +
-    `*Ejemplos:*\n\`gasto 2800 supermercado\`\n\`gasto 15000 alquiler vivienda fijo\`\n\n` +
-    `*Categorías:* ${CATEGORIES.join(", ")}\n*Tipos:* fijo · variable · extraordinario\n\n` +
-    `*Comandos:* /resumen /lista /ayuda\n\n🔑 *Tu ID:* \`${userId}\`\n🌐 *App:* ${WEBHOOK_URL || "sin configurar"}`
+    `ℹ️ *Cómo registrar un gasto:*\n\n` +
+    `\`gasto [monto] [descripción] [categoría] [tipo] [fecha]\`\n\n` +
+    `*Ejemplos:*\n` +
+    `\`gasto 2800 supermercado\`\n` +
+    `\`gasto 15000 alquiler vivienda fijo\`\n` +
+    `\`gasto 500 cafe 20/04\`  ← fecha distinta al día\n` +
+    `\`gasto 500 cafe 20/04/2026\`\n\n` +
+    `*Categorías:* ${CATEGORIES.join(", ")}\n` +
+    `*Tipos:* fijo · variable · extraordinario\n\n` +
+    `*Comandos:*\n` +
+    `/resumen · /lista · /editar · /ayuda\n\n` +
+    `🔑 *Tu ID:* \`${userId}\`\n` +
+    `🌐 *App:* ${WEBHOOK_URL || "sin configurar"}`
   );
 }
 
@@ -308,17 +420,18 @@ app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
   const update = req.body;
   if (!update.message) return;
-  const msg = update.message;
-  const chatId = msg.chat.id;
-  const userId = String(msg.from.id);
-  const text = (msg.text || "").trim();
+  const msg      = update.message;
+  const chatId   = msg.chat.id;
+  const userId   = String(msg.from.id);
+  const text     = (msg.text || "").trim();
   const userName = [msg.from.first_name, msg.from.last_name].filter(Boolean).join(" ") || `User${userId}`;
 
   if (ALLOWED_IDS.length > 0 && !ALLOWED_IDS.includes(userId))
     return sendMessage(chatId, "⛔ No estás autorizado.");
 
   if (text.startsWith("/resumen")) return cmdResumen(chatId, userId);
-  if (text.startsWith("/lista")) return cmdLista(chatId, userId);
+  if (text.startsWith("/lista"))   return cmdLista(chatId, userId);
+  if (text.startsWith("/editar"))  return cmdEditar(chatId, userId, text);
   if (text.startsWith("/start") || text.startsWith("/ayuda")) return cmdAyuda(chatId, userId);
 
   if (/^gasto\s+/i.test(text)) {
@@ -340,13 +453,50 @@ app.post("/webhook", async (req, res) => {
 app.get("/api/gastos", async (req, res) => {
   const { userId, secret } = req.query;
   if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
-  if (!userId) return res.status(400).json({ error: "userId requerido" });
+  if (!userId)               return res.status(400).json({ error: "userId requerido" });
   const safeId = String(userId).replace(/[^0-9]/g, "");
   if (ALLOWED_IDS.length > 0 && !ALLOWED_IDS.includes(safeId))
     return res.status(403).json({ error: "Usuario no autorizado" });
   try {
     const data = await loadUser(safeId);
     res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Editar un gasto existente
+app.put("/api/gastos/:id", async (req, res) => {
+  const { secret, userId } = req.query;
+  if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
+  if (!userId)               return res.status(400).json({ error: "userId requerido" });
+  const safeId = String(userId).replace(/[^0-9]/g, "");
+  const id     = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: "ID inválido" });
+  try {
+    const updated = await updateExpense(safeId, id, req.body);
+    if (!updated) return res.status(404).json({ error: "Gasto no encontrado" });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Eliminar un gasto
+app.delete("/api/gastos/:id", async (req, res) => {
+  const { secret, userId } = req.query;
+  if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
+  if (!userId)               return res.status(400).json({ error: "userId requerido" });
+  const safeId = String(userId).replace(/[^0-9]/g, "");
+  const id     = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: "ID inválido" });
+  try {
+    const { rowCount } = await pool.query(
+      "DELETE FROM expenses WHERE id = $1 AND user_id = $2",
+      [id, safeId]
+    );
+    if (!rowCount) return res.status(404).json({ error: "Gasto no encontrado" });
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -366,7 +516,7 @@ app.get("/api/health", async (req, res) => {
 async function registerWebhook() {
   if (!BOT_TOKEN || !WEBHOOK_URL) return;
   const { default: fetch } = await import("node-fetch");
-  const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/setWebhook`, {
+  const res  = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/setWebhook`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url: `${WEBHOOK_URL}/webhook` }),
   });
@@ -388,20 +538,3 @@ app.listen(PORT, async () => {
   }
   await registerWebhook();
 });
-
-
-
-// Al iniciar la app, intentar cargar desde el servidor
-// async function syncFromServer() {
-//   try {
-//     const res = await fetch('https://mis-gastos-production-ca09.up.railway.app/api/gastos');
-//     const serverData = await res.json();
-//     // Mergear con datos locales (el servidor es fuente de verdad)
-//     Object.assign(data, serverData);
-//     save();
-//     renderResumen();
-//   } catch (e) {
-//     console.log('Sin conexión al servidor, usando datos locales');
-//   }
-// }
-// syncFromServer();

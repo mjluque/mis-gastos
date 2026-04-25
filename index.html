@@ -137,6 +137,14 @@
     /* Sheets badge */
     .sheets-badge { font-size: 11px; padding: 2px 7px; border-radius: 10px; background: #e8f5e9; color: #2e7d32; border: 0.5px solid #a5d6a7; }
     @media (prefers-color-scheme: dark) { .sheets-badge { background: #1b3a1e; color: #81c784; border-color: #2e7d32; } }
+
+    /* Modal de edición */
+    .modal-backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:100; align-items:center; justify-content:center; padding:16px; }
+    .modal-backdrop.open { display:flex; }
+    .modal { background:var(--bg); border-radius:var(--radius-lg); padding:20px; width:100%; max-width:420px; border:0.5px solid var(--border2); }
+    .modal-title { font-size:15px; font-weight:500; margin-bottom:16px; }
+    .modal-footer { display:flex; gap:8px; margin-top:16px; }
+    .btn-edit { border-color:var(--blue); color:var(--blue); }
   </style>
 </head>
 <body>
@@ -298,6 +306,36 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- Modal de edición -->
+<div class="modal-backdrop" id="edit-modal" onclick="closeEditModal(event)">
+  <div class="modal">
+    <div class="modal-title">Editar gasto</div>
+    <input type="hidden" id="edit-id">
+    <input type="hidden" id="edit-user-id">
+    <div class="form-row">
+      <div><label class="form-label">Descripción</label><input type="text" id="edit-desc"></div>
+      <div><label class="form-label">Monto ($)</label><input type="number" id="edit-amt" min="0" step="1"></div>
+    </div>
+    <div class="form-row">
+      <div><label class="form-label">Categoría</label>
+        <select id="edit-cat">
+          <option>Alimentación</option><option>Transporte</option><option>Vivienda</option>
+          <option>Salud</option><option>Entretenimiento</option><option>Ropa</option>
+          <option>Educación</option><option>Servicios</option><option>Restaurantes</option><option>Otros</option>
+        </select>
+      </div>
+      <div><label class="form-label">Tipo</label>
+        <select id="edit-type"><option>Variable</option><option>Fijo</option><option>Extraordinario</option></select>
+      </div>
+    </div>
+    <div class="form-group"><label class="form-label">Fecha</label><input type="date" id="edit-date" style="width:auto"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeEditModal()" style="flex:1">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveEdit()" style="flex:2">Guardar cambios</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const MONTHS=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const CAT_COLORS={'Alimentación':'#378ADD','Transporte':'#1D9E75','Vivienda':'#D85A30','Salud':'#D4537E','Entretenimiento':'#534AB7','Ropa':'#BA7517','Educación':'#639922','Servicios':'#888780','Restaurantes':'#185FA5','Otros':'#3C3489'};
@@ -455,11 +493,87 @@ function quickAdd(desc,cat){
   switchTab('agregar');
 }
 
-function deleteExpense(key,id){
-  const data=curData();
+function deleteExpense(id){
+  if(!confirm('¿Eliminar este gasto?')) return;
+  const u=activeUser();
+  // Eliminar localmente
+  const data=curData(),key=curKey();
   data[key]=(data[key]||[]).filter(e=>e.id!==id);
-  saveUserData(activeId,data);renderList();renderResumen();
+  saveUserData(activeId,data);
+  // Eliminar en servidor si está configurado
+  if(u?.telegramId&&serverCfg.url&&serverCfg.secret){
+    fetch(`${serverCfg.url}/api/gastos/${id}?userId=${u.telegramId}&secret=${encodeURIComponent(serverCfg.secret)}`,
+      {method:'DELETE'}).catch(()=>{});
+  }
+  renderList();renderResumen();
   toast('Gasto eliminado');
+}
+
+// ── Modal de edición ──────────────────────────────────────────────────────────
+
+function openEditModal(id, desc, amt, cat, type, date){
+  document.getElementById('edit-id').value   = id;
+  document.getElementById('edit-desc').value = desc;
+  document.getElementById('edit-amt').value  = amt;
+  document.getElementById('edit-cat').value  = cat;
+  document.getElementById('edit-type').value = type;
+  document.getElementById('edit-date').value = date;
+  document.getElementById('edit-modal').classList.add('open');
+}
+
+function closeEditModal(e){
+  if(e && e.target !== document.getElementById('edit-modal')) return;
+  document.getElementById('edit-modal').classList.remove('open');
+}
+
+async function saveEdit(){
+  const id   = parseInt(document.getElementById('edit-id').value);
+  const desc = document.getElementById('edit-desc').value.trim();
+  const amt  = parseFloat(document.getElementById('edit-amt').value);
+  const cat  = document.getElementById('edit-cat').value;
+  const type = document.getElementById('edit-type').value;
+  const date = document.getElementById('edit-date').value;
+
+  if(!desc||!amt||!date){toast('Completá todos los campos',false);return;}
+
+  // Actualizar localmente en todas las posibles claves de mes
+  const data=curData();
+  let found=false;
+  for(const key of Object.keys(data)){
+    const idx=data[key].findIndex(e=>e.id===id);
+    if(idx>=0){
+      // Si cambió la fecha y es otro mes, mover el gasto
+      const [y,m]=key.split('-');
+      const jsMonth=parseInt(m);
+      const [ny,nm,nd]=date.split('-');
+      const newJsMonth=parseInt(nm)-1;
+      const newKey=`${ny}-${String(newJsMonth).padStart(2,'0')}`;
+      data[key][idx]={...data[key][idx],desc,amt,cat,type,date};
+      if(newKey!==key){
+        if(!data[newKey])data[newKey]=[];
+        data[newKey].push(data[key][idx]);
+        data[key].splice(idx,1);
+      }
+      found=true;break;
+    }
+  }
+  if(found) saveUserData(activeId,data);
+
+  // Actualizar en servidor
+  const u=activeUser();
+  if(u?.telegramId&&serverCfg.url&&serverCfg.secret){
+    try{
+      await fetch(`${serverCfg.url}/api/gastos/${id}?userId=${u.telegramId}&secret=${encodeURIComponent(serverCfg.secret)}`,{
+        method:'PUT',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({desc,amt,cat,type,date}),
+      });
+    }catch(e){console.warn('Error actualizando en servidor:',e.message);}
+  }
+
+  document.getElementById('edit-modal').classList.remove('open');
+  toast('✓ Gasto actualizado');
+  renderList();renderResumen();
 }
 
 // ── Renders ───────────────────────────────────────────────────────────────────
@@ -521,7 +635,8 @@ function renderList(){
       <div class="cat-dot" style="background:${CAT_COLORS[e.cat]||'#888'}"></div>
       <div class="expense-desc">${e.desc}<div class="expense-sub">${e.cat} · ${e.type} · ${e.date}</div></div>
       <div class="expense-amt">${fmt(e.amt)}</div>
-      <button class="btn btn-sm btn-danger" onclick="deleteExpense('${key}',${e.id})">×</button>
+      <button class="btn btn-sm btn-edit" onclick="openEditModal(${e.id},'${e.desc}',${e.amt},'${e.cat}','${e.type}','${e.date}')">✏</button>
+      <button class="btn btn-sm btn-danger" onclick="deleteExpense(${e.id})">×</button>
     </div>`).join(''):'<div class="empty">Sin gastos con ese filtro</div>';
   const total=filtered.reduce((s,e)=>s+e.amt,0);
   document.getElementById('list-total').textContent=filtered.length?`Total: ${fmt(total)}`:'';
