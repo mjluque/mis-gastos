@@ -2,6 +2,8 @@
 .env
 .env.example
 DEV_LOCAL_MAC.md
+migrate_v6.sql
+
 
 # Datos de usuarios
 data/
