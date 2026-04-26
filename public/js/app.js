@@ -5,14 +5,18 @@ import {
     initStorage, users, groups, activeId, serverCfg,
     setActiveId, saveUsers, saveActive, saveGroups,
     curData, curExpenses, saveUserData, activeUser,
-    loadUserData
+    loadUserData, getConfigKey, serializeConfig, applyConfig
 } from "./storage.js";
 import { updateHeader, setSyncStatus, toast } from "./ui.js";
 import {
     renderResumen, renderList, renderCompare, renderConfig,
     selectedMonths, setSelectedMonths
 } from "./renders.js";
-import { syncNow, syncUserManual, deleteExpenseRemote, saveServerConfig, checkServerHealth } from "./api.js";
+import {
+    syncNow, syncUserManual, deleteExpenseRemote, saveServerConfig,
+    checkServerHealth, fetchRemoteConfig, pushRemoteConfig,
+    fetchServerInfo
+} from "./api.js";
 import { openEditFromBtn, closeEditModal, saveEdit } from "./modals.js";
 import { curKey, getKey, CATEGORIES } from "./config.js";
 
@@ -20,6 +24,16 @@ import { curKey, getKey, CATEGORIES } from "./config.js";
 
 let currentView = "personal";
 let activeGroupId = null;
+
+// ── Config remota ─────────────────────────────────────────────────────────────
+// La clave es el telegramId del usuario activo — permanente e independiente
+// del dispositivo o navegador.
+
+async function pushConfig() {
+    const key = getConfigKey();
+    if (!key) return; // sin telegramId no se puede guardar en el servidor
+    await pushRemoteConfig(key, serializeConfig());
+}
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 
@@ -87,6 +101,7 @@ export function addUser() {
     renderConfig();
     updateHeader();
     updateViewSelector();
+    pushConfig();
     toast("✓ Usuario agregado");
 }
 
@@ -99,6 +114,7 @@ export function deleteUser(uid) {
     if (activeId === uid) { setActiveId(users[0]?.id || null); saveActive(); }
     renderConfig();
     updateHeader();
+    pushConfig();
     refresh();
 }
 
@@ -114,6 +130,7 @@ export function addGroup() {
     document.getElementById("new-groupid").value = "";
     renderConfig();
     updateViewSelector();
+    pushConfig();
     toast("✓ Grupo agregado");
 }
 
@@ -125,6 +142,7 @@ export function deleteGroup(uid) {
     if (activeGroupId === uid) { activeGroupId = null; currentView = "personal"; }
     renderConfig();
     updateViewSelector();
+    pushConfig();
     refresh();
 }
 
@@ -184,6 +202,25 @@ export function toggleMonth(k) {
 // Los módulos ES6 no exponen globales automáticamente, así que los registramos
 // en window explícitamente solo para los handlers inline del DOM.
 
+// Verificar URL del servidor antes de guardar
+async function verifyServerUrl() {
+    const url = document.getElementById("server-url").value.trim();
+    const statusEl = document.getElementById("server-url-status");
+    if (!url) { statusEl.textContent = "Ingresá una URL"; return; }
+    statusEl.textContent = "Verificando...";
+    try {
+        const res = await fetch(`${url}/api/health`);
+        const json = await res.json();
+        if (json.ok) {
+            statusEl.innerHTML = '<span style="color:#1D9E75">✓ Servidor conectado · DB: ' + json.db + (json.sheets ? " · Sheets activo" : "") + "</span>";
+        } else {
+            statusEl.innerHTML = '<span style="color:#D85A30">⚠ Servidor respondió con error</span>';
+        }
+    } catch {
+        statusEl.innerHTML = '<span style="color:#D85A30">✗ No se pudo conectar</span>';
+    }
+}
+
 window.__switchTab = switchTab;
 window.__switchView = switchView;
 window.__syncNow = () => syncNow(false);
@@ -199,32 +236,57 @@ window.__deleteGroup = deleteGroup;
 window.__openEditFromBtn = openEditFromBtn;
 window.__closeEditModal = closeEditModal;
 window.__saveEdit = saveEdit;
-window.__saveServerConfig = saveServerConfig;
+window.__renderList = renderList;
+window.__saveServerConfig = () => { saveServerConfig(); pushConfig(); };
 window.__syncUserManual = syncUserManual;
+window.__verifyServerUrl = verifyServerUrl;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
-function init() {
+async function init() {
     initStorage();
 
-    // Inicializar selector de mes/año al mes actual
+    // Inicializar selectores de fecha
     const now = new Date();
     document.getElementById("month-select").value = now.getMonth();
     document.getElementById("year-select").value = now.getFullYear();
     document.getElementById("new-date").value = now.toISOString().split("T")[0];
-
     document.getElementById("month-select").addEventListener("change", refresh);
     document.getElementById("year-select").addEventListener("change", refresh);
 
     updateHeader();
     updateViewSelector();
+
+    // ── Paso 1: resolver la URL del servidor ──────────────────────────────────
+    // Si ya hay una URL guardada localmente, la usamos directamente.
+    // Si no, la app queda en espera — el usuario debe ingresarla en Config.
+    if (!serverCfg.url) {
+        setSyncStatus("idle", "Ingresá la URL del servidor en ⚙ Config");
+        renderResumen(currentView, activeGroupId);
+        return;
+    }
+
+    // ── Paso 2: cargar config remota usando el telegramId del usuario activo ──
+    const configKey = getConfigKey();
+    if (configKey && serverCfg.secret) {
+        setSyncStatus("syncing", "Cargando configuración...");
+        const remote = await fetchRemoteConfig(configKey);
+        if (remote) {
+            applyConfig(remote);
+            updateHeader();
+            updateViewSelector();
+            setSyncStatus("ok", "Configuración cargada");
+        } else {
+            setSyncStatus("idle", "Sin configuración remota aún");
+        }
+    } else {
+        setSyncStatus("idle", serverCfg.secret ? "Agregá tu ID de Telegram en Config" : "Completá la configuración en ⚙ Config");
+    }
+
     renderResumen(currentView, activeGroupId);
 
-    if (serverCfg.autoSync && serverCfg.url && serverCfg.secret) {
-        syncNow(true);
-    } else {
-        setSyncStatus("idle", serverCfg.url ? "Auto-sync desactivado" : "Sin servidor configurado");
-    }
+    // ── Paso 3: auto-sync de gastos ───────────────────────────────────────────
+    if (serverCfg.autoSync && serverCfg.secret) syncNow(true);
 }
 
 init();

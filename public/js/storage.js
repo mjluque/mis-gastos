@@ -5,6 +5,53 @@ import { getKey } from "./config.js";
 
 // ── Estado de la app ──────────────────────────────────────────────────────────
 
+// ── Device ID ─────────────────────────────────────────────────────────────────
+// Identificador único persistente por dispositivo/navegador.
+// Se genera una sola vez y nunca cambia.
+
+export function getDeviceId() {
+    let id = localStorage.getItem("gastos_device_id");
+    if (!id) {
+        id = "dev_" + Date.now() + "_" + Math.random().toString(36).slice(2, 9);
+        localStorage.setItem("gastos_device_id", id);
+    }
+    return id;
+}
+
+// ── Clave de config: telegramId del usuario activo ────────────────────────────
+// Si el usuario activo tiene telegramId, esa es la clave para /api/config.
+// Es permanente, independiente del dispositivo o navegador.
+
+export function getConfigKey() {
+    const u = users.find((x) => x.id === activeId);
+    return u?.telegramId || null;
+}
+
+// ── Serialización de config ───────────────────────────────────────────────────
+// La config que se sube/baja del servidor contiene solo metadatos
+// (usuarios, grupos, serverCfg). Los gastos van por su propio endpoint.
+
+export function serializeConfig() {
+    return { users, groups, serverCfg };
+}
+
+export function applyConfig(remote) {
+    if (!remote) return;
+    if (Array.isArray(remote.users) && remote.users.length) users.splice(0, users.length, ...remote.users);
+    if (Array.isArray(remote.groups) && remote.groups.length) groups.splice(0, groups.length, ...remote.groups);
+    if (remote.serverCfg?.url) Object.assign(serverCfg, remote.serverCfg);
+    // Asegurar que activeId siga siendo válido
+    if (!users.find((u) => u.id === activeId) && users.length) {
+        activeId = users[0].id;
+    }
+    saveUsers();
+    saveGroups();
+    saveServerCfg();
+    saveActive();
+}
+
+// ── Device ID ─────────────────────────────────────────────────────────────────
+
 export let users = [];
 export let groups = [];
 export let activeId = null;

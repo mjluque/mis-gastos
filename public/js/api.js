@@ -100,6 +100,39 @@ export async function deleteExpenseRemote(expenseId) {
     } catch (e) { console.warn("Error eliminando en servidor:", e.message); }
 }
 
+// ── Info pública del servidor (no requiere secret) ────────────────────────────
+
+export async function fetchServerInfo(serverUrl) {
+    try {
+        const res = await fetch(`${serverUrl}/api/info`);
+        if (!res.ok) return null;
+        return await res.json(); // { serverUrl }
+    } catch { return null; }
+}
+
+// ── Configuración remota (clave: telegramId del usuario activo) ───────────────
+
+export async function fetchRemoteConfig(telegramId) {
+    if (!serverCfg.url || !serverCfg.secret || !telegramId) return null;
+    try {
+        const res = await fetch(
+            `${serverCfg.url}/api/config?telegramId=${telegramId}&secret=${encodeURIComponent(serverCfg.secret)}`
+        );
+        if (!res.ok) return null;
+        return await res.json();
+    } catch { return null; }
+}
+
+export async function pushRemoteConfig(telegramId, config) {
+    if (!serverCfg.url || !serverCfg.secret || !telegramId) return;
+    try {
+        await fetch(
+            `${serverCfg.url}/api/config?telegramId=${telegramId}&secret=${encodeURIComponent(serverCfg.secret)}`,
+            { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(config) }
+        );
+    } catch (e) { console.warn("Error guardando config remota:", e.message); }
+}
+
 // ── Health check del servidor ─────────────────────────────────────────────────
 
 export async function checkServerHealth() {

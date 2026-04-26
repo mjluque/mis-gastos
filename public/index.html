@@ -208,8 +208,14 @@
           <div class="section-title" style="margin:0">Conexión al servidor</div>
           <span id="sheets-badge" style="display:none" class="sheets-badge">📊 Sheets activo</span>
         </div>
-        <div class="form-group"><label class="form-label">URL del servidor</label><input type="text" id="server-url"
-            placeholder="https://mi-bot.railway.app"></div>
+        <div class="form-group"><label class="form-label">URL del servidor</label>
+          <div style="display:flex;gap:8px">
+            <input type="text" id="server-url" placeholder="https://mi-bot.railway.app" style="flex:1">
+            <button class="btn btn-sm" onclick="window.__verifyServerUrl()" title="Verificar conexión"
+              style="white-space:nowrap">Verificar ↗</button>
+          </div>
+          <div id="server-url-status" style="font-size:11px;color:var(--text2);margin-top:4px"></div>
+        </div>
         <div class="form-group"><label class="form-label">API Secret</label><input type="password" id="server-secret"
             placeholder="tu-api-secret"></div>
         <div class="form-group" style="display:flex;align-items:center;gap:8px">
