@@ -1132,7 +1132,7 @@
         data-cat="${e.cat}"
         data-type="${e.type}"
         data-date="${e.date}"
-        onclick="openEditFromBtn(this)">✏</button>
+        onclick="openEditFromBtn(this)">Edit✏</button>
       <button class="btn btn-sm btn-danger" onclick="deleteExpense(${e.id})">×</button>
     </div>`).join('') : '<div class="empty">Sin gastos con ese filtro</div>';
       const total = filtered.reduce((s, e) => s + e.amt, 0);
