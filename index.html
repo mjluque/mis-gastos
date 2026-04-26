@@ -160,6 +160,9 @@
       </div>
     </div>
     <div class="header-right">
+      <select class="sel-sm" id="view-selector" onchange="switchView(this.value)" style="font-weight:500;max-width:130px">
+        <option value="personal">👤 Personal</option>
+      </select>
       <button class="btn btn-icon" onclick="syncNow()" title="Sincronizar">↻</button>
       <select class="sel-sm" id="month-select">
         <option value="0">Enero</option><option value="1">Febrero</option><option value="2">Marzo</option>
@@ -299,6 +302,17 @@
     <div class="card">
       <div class="section-title">Usuario activo</div>
       <div id="active-user-picker" style="display:flex;flex-wrap:wrap;gap:8px"></div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">Grupos</div>
+      <div id="group-list" style="margin-bottom:12px"></div>
+      <div class="form-row" style="margin-bottom:8px">
+        <div><label class="form-label">Nombre del grupo</label><input type="text" id="new-groupname" placeholder="ej: Casa"></div>
+        <div><label class="form-label">ID del grupo de Telegram</label><input type="text" id="new-groupid" placeholder="-100123456789"></div>
+      </div>
+      <button class="btn" onclick="addGroup()" style="width:100%">Agregar grupo</button>
+      <div style="font-size:11px;color:var(--text2);margin-top:6px">El ID lo encontrás con @userinfobot desde el grupo, o mandando /ayuda al bot desde el grupo</div>
     </div>
   </div>
 
@@ -738,9 +752,143 @@ function switchTab(name){
 
 function refresh(){renderResumen();renderList();renderCompare();}
 
+// ── Grupos ────────────────────────────────────────────────────────────────────
+
+let groups=[], activeGroupId=null, currentView='personal';
+
+function saveGroups(){localStorage.setItem('gastos_groups',JSON.stringify(groups));}
+
+function addGroup(){
+  const name=document.getElementById('new-groupname').value.trim();
+  const gid=document.getElementById('new-groupid').value.trim();
+  if(!name||!gid){toast('Completá nombre e ID del grupo',false);return;}
+  const uid='g'+Date.now();
+  groups.push({id:uid,name,telegramId:gid});
+  saveGroups();
+  document.getElementById('new-groupname').value='';
+  document.getElementById('new-groupid').value='';
+  renderConfig();updateViewSelector();
+  toast('✓ Grupo agregado');
+}
+
+function deleteGroup(uid){
+  if(!confirm('¿Eliminar este grupo?')) return;
+  groups=groups.filter(g=>g.id!==uid);
+  saveGroups();
+  if(activeGroupId===uid){activeGroupId=null;currentView='personal';}
+  renderConfig();updateViewSelector();refresh();
+}
+
+function updateViewSelector(){
+  const sel=document.getElementById('view-selector');
+  sel.innerHTML='<option value="personal">👤 Personal</option>' +
+    groups.map(g=>`<option value="group_${g.id}">👥 ${g.name}</option>`).join('');
+  sel.value=currentView==='group'&&activeGroupId?'group_'+activeGroupId:'personal';
+}
+
+function switchView(val){
+  if(val==='personal'){
+    currentView='personal';activeGroupId=null;
+  }else{
+    const uid=val.replace('group_','');
+    const g=groups.find(x=>x.id===uid);
+    if(g){currentView='group';activeGroupId=uid;}
+  }
+  selectedMonths=[];refresh();
+}
+
+// Vista grupal: cargar datos desde el servidor
+async function loadGroupData(groupId){
+  const g=groups.find(x=>x.id===groupId);
+  if(!g||!serverCfg.url||!serverCfg.secret) return null;
+  try{
+    const res=await fetch(`${serverCfg.url}/api/gastos/grupo/${g.telegramId}?secret=${encodeURIComponent(serverCfg.secret)}`);
+    if(!res.ok) return null;
+    return await res.json();
+  }catch{return null;}
+}
+
+function curDataResolved(){
+  if(currentView==='group'){
+    try{return JSON.parse(localStorage.getItem('gastos_group_'+activeGroupId)||'{}')}catch{return{}}
+  }
+  return curData();
+}
+
+// Renderizado del resumen grupal en la app web
+async function renderResumenGrupal(){
+  const g=groups.find(x=>x.id===activeGroupId);
+  if(!g){document.getElementById('metrics-row').innerHTML='<div style="color:var(--text2);font-size:13px">Configurá el grupo en ⚙ Config.</div>';return;}
+
+  // Intentar cargar desde servidor
+  setSyncStatus('syncing','Cargando grupo...');
+  const serverData=await loadGroupData(activeGroupId);
+  if(serverData){
+    localStorage.setItem('gastos_group_'+activeGroupId,JSON.stringify(serverData));
+    setSyncStatus('ok',`${g.name} · ${new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}`);
+  }else{
+    setSyncStatus('err','Sin conexión al servidor');
+  }
+
+  const data=curDataResolved();
+  const key=curKey();
+  const exps=data[key]||[];
+
+  // Métricas generales
+  const total=exps.reduce((s,e)=>s+e.amt,0);
+  const byPerson={};
+  exps.forEach(e=>{
+    const n=e.user_name||'Sin nombre';
+    if(!byPerson[n])byPerson[n]=0;
+    byPerson[n]+=e.amt;
+  });
+  const personas=Object.keys(byPerson).length;
+  document.getElementById('metrics-row').innerHTML=`
+    <div class="metric"><div class="metric-label">Total grupal</div><div class="metric-value">${fmt(total)}</div></div>
+    <div class="metric"><div class="metric-label">Personas</div><div class="metric-value">${personas}</div></div>
+    <div class="metric"><div class="metric-label">Registros</div><div class="metric-value">${exps.length}</div></div>
+    <div class="metric"><div class="metric-label">Promedio</div><div class="metric-value">${personas?fmt(Math.round(total/personas)):'—'}</div></div>`;
+
+  // Barras por persona
+  const maxP=Math.max(...Object.values(byPerson),1);
+  document.getElementById('cat-bars').innerHTML=Object.entries(byPerson)
+    .sort((a,b)=>b[1]-a[1])
+    .map(([name,amt])=>`
+      <div class="bar-row">
+        <div class="bar-label" style="width:96px">${name.split(' ')[0]}</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${(amt/maxP*100).toFixed(1)}%;background:var(--blue)"></div></div>
+        <div class="bar-val">${fmt(amt)}</div>
+      </div>`).join('');
+
+  // Gastos recientes con nombre
+  const recent=[...exps].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,6);
+  document.getElementById('recent-list').innerHTML=recent.length?recent.map(e=>`
+    <div class="expense-row">
+      <div class="cat-dot" style="background:${CAT_COLORS[e.cat]||'#888'}"></div>
+      <div class="expense-desc">${e.desc}<div class="expense-sub">${e.user_name||''} · ${e.cat} · ${e.date}</div></div>
+      <div class="expense-amt">${fmt(e.amt)}</div>
+    </div>`).join(''):'<div class="empty">Sin gastos grupales este mes</div>';
+}
+
+// Sobrescribir renderConfig para incluir grupos
+const _origRenderConfig=renderConfig;
+function renderConfig(){
+  _origRenderConfig();
+  // Lista de grupos
+  document.getElementById('group-list').innerHTML=groups.length?groups.map(g=>`
+    <div class="user-row">
+      <div>
+        <div style="font-size:13px;font-weight:500">👥 ${g.name}</div>
+        <div style="font-size:11px;color:var(--text2)">ID: ${g.telegramId}</div>
+      </div>
+      <button class="btn btn-sm btn-danger" onclick="deleteGroup('${g.id}')">×</button>
+    </div>`).join(''):'<div class="empty" style="padding:12px">Sin grupos. Agregá uno abajo.</div>';
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 try{users=JSON.parse(localStorage.getItem('gastos_users')||'[]');}catch{users=[];}
+try{groups=JSON.parse(localStorage.getItem('gastos_groups')||'[]');}catch{groups=[];}
 activeId=localStorage.getItem('gastos_active')||null;
 try{serverCfg=JSON.parse(localStorage.getItem('gastos_server')||'{}');}catch{serverCfg={};}
 
@@ -775,7 +923,15 @@ if(users.length===0){
   saveUserData('demo1',demo);
 }
 
+// Parchear renderResumen para soporte grupal
+const _origRenderResumen=renderResumen;
+function renderResumen(){
+  if(currentView==='group') return renderResumenGrupal();
+  _origRenderResumen();
+}
+
 updateHeader();
+updateViewSelector();
 renderResumen();
 
 if(serverCfg.autoSync&&serverCfg.url&&serverCfg.secret){
