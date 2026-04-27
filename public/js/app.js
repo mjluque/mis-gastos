@@ -242,6 +242,7 @@ async function verifyServerUrl() {
   }
 }
 
+window.__refresh           = refresh;
 window.__switchTab         = switchTab;
 window.__switchView        = switchView;
 window.__syncNow           = () => syncNow(false);
