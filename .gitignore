@@ -3,6 +3,8 @@
 .env.example
 DEV_LOCAL_MAC.md
 migrate_v6.sql
+migrate_v10.sql
+generate-hash.js
 
 
 # Datos de usuarios
