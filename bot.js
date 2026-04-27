@@ -52,13 +52,12 @@ const API_SECRET         = process.env.API_SECRET || "cambiar-esto";
 const ALLOWED_IDS        = process.env.ALLOWED_IDS
   ? process.env.ALLOWED_IDS.split(",").map((id) => id.trim())
   : [];
-const SHEET_ID           = process.env.GOOGLE_SHEET_ID;
-const GOOGLE_CREDS       = process.env.GOOGLE_CREDENTIALS
-  ? JSON.parse(process.env.GOOGLE_CREDENTIALS)
-  : null;
-const ADMIN_TELEGRAM_ID  = process.env.ADMIN_TELEGRAM_ID || null;
-const ADMIN_PWD_HASH     = process.env.ADMIN_PASSWORD_HASH || null;
-const JWT_SECRET         = process.env.JWT_SECRET || "cambiar-jwt-secret";
+const ADMIN_TELEGRAM_ID    = process.env.ADMIN_TELEGRAM_ID || null;
+const ADMIN_PWD_HASH       = process.env.ADMIN_PASSWORD_HASH || null;
+const JWT_SECRET           = process.env.JWT_SECRET || "cambiar-jwt-secret";
+const OAUTH_CLIENT_ID      = process.env.GOOGLE_OAUTH_CLIENT_ID || null;
+const OAUTH_CLIENT_SECRET  = process.env.GOOGLE_OAUTH_CLIENT_SECRET || null;
+const OAUTH_CALLBACK       = `${process.env.WEBHOOK_URL || ""}/auth/google/callback`;
 
 // ── PostgreSQL ────────────────────────────────────────────────────────────────
 
@@ -116,6 +115,16 @@ async function initDB() {
     )
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS admin_sessions_expires_idx ON admin_sessions (expires_at)`);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_google_tokens (
+      telegram_id   TEXT        PRIMARY KEY,
+      sheet_id      TEXT        DEFAULT NULL,
+      access_token  TEXT,
+      refresh_token TEXT        NOT NULL,
+      expires_at    TIMESTAMPTZ
+    )
+  `);
 
   console.log("✅ Base de datos lista");
 }
@@ -251,87 +260,226 @@ async function resumeByPerson(groupId) {
   return rows;
 }
 
-// ── Google Sheets ─────────────────────────────────────────────────────────────
+// ── Google OAuth + Sheets por usuario ────────────────────────────────────────
 
-let sheetsClient = null;
+function makeOAuthClient() {
+  if (!OAUTH_CLIENT_ID || !OAUTH_CLIENT_SECRET) return null;
+  return new google.auth.OAuth2(OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_CALLBACK);
+}
 
-async function getSheetsClient() {
-  if (sheetsClient) return sheetsClient;
-  if (!GOOGLE_CREDS || !SHEET_ID) return null;
-  const auth = new google.auth.GoogleAuth({
-    credentials: GOOGLE_CREDS,
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+// Obtiene un cliente OAuth autenticado para el usuario, renovando el token si es necesario
+async function getAuthClientForUser(telegramId) {
+  const { rows } = await pool.query(
+    "SELECT access_token, refresh_token, expires_at FROM user_google_tokens WHERE telegram_id = $1",
+    [String(telegramId)]
+  );
+  if (!rows.length || !rows[0].refresh_token) return null;
+
+  const oauth2 = makeOAuthClient();
+  if (!oauth2) return null;
+
+  oauth2.setCredentials({
+    access_token:  rows[0].access_token,
+    refresh_token: rows[0].refresh_token,
+    expiry_date:   rows[0].expires_at ? new Date(rows[0].expires_at).getTime() : null,
   });
-  sheetsClient = google.sheets({ version: "v4", auth });
-  await ensureSheetStructure();
-  return sheetsClient;
-}
 
-async function ensureSheetStructure() {
-  if (!sheetsClient || !SHEET_ID) return;
-  try {
-    const meta     = await sheetsClient.spreadsheets.get({ spreadsheetId: SHEET_ID });
-    const existing = meta.data.sheets.map((s) => s.properties.title);
-    const required = [
-      { title: "Gastos",          headers: ["ID","Scope","Grupo","Usuario","Fecha","Descripción","Monto","Categoría","Tipo","Mes","Año"] },
-      { title: "Resumen_Mensual", headers: ["Scope","Grupo","Usuario","Año","Mes","Categoría","Total"] },
-    ];
-    const toCreate = required.filter((r) => !existing.includes(r.title));
-    if (toCreate.length) {
-      await sheetsClient.spreadsheets.batchUpdate({
-        spreadsheetId: SHEET_ID,
-        resource: { requests: toCreate.map((s) => ({ addSheet: { properties: { title: s.title } } })) },
-      });
+  // Renovar si expiró o expira en menos de 5 minutos
+  const expiresAt = rows[0].expires_at ? new Date(rows[0].expires_at) : null;
+  if (!expiresAt || expiresAt < new Date(Date.now() + 5 * 60 * 1000)) {
+    try {
+      const { credentials } = await oauth2.refreshAccessToken();
+      await pool.query(
+        `UPDATE user_google_tokens
+         SET access_token = $1, expires_at = $2
+         WHERE telegram_id = $3`,
+        [credentials.access_token, new Date(credentials.expiry_date), String(telegramId)]
+      );
+      oauth2.setCredentials(credentials);
+    } catch (e) {
+      console.error("Error renovando token OAuth:", e.message);
+      return null;
     }
-    for (const sheet of required) {
-      const range = `${sheet.title}!A1:${String.fromCharCode(64 + sheet.headers.length)}1`;
-      const res   = await sheetsClient.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range }).catch(() => null);
-      if (!res?.data?.values?.length) {
-        await sheetsClient.spreadsheets.values.update({
-          spreadsheetId: SHEET_ID, range, valueInputOption: "RAW",
-          resource: { values: [sheet.headers] },
-        });
-      }
-    }
-  } catch (e) {
-    console.error("Sheets setup:", e.message);
   }
+
+  return oauth2;
 }
 
-async function appendToSheet(scope, groupId, userName, expense) {
-  const client = await getSheetsClient();
-  if (!client) return;
+// Crea el Sheet del usuario la primera vez que registra un gasto
+async function createUserSheet(auth, userName) {
+  const drive   = google.drive({ version: "v3", auth });
+  const sheets  = google.sheets({ version: "v4", auth });
+
+  // Crear el archivo en Drive
+  const file = await drive.files.create({
+    requestBody: {
+      name:     `Mis gastos — ${userName}`,
+      mimeType: "application/vnd.google-apps.spreadsheet",
+    },
+    fields: "id",
+  });
+  const sheetId = file.data.id;
+
+  // Configurar hojas con encabezados
+  const SHEET_HEADERS = {
+    "Gastos":          ["ID","Usuario","Fecha","Descripción","Monto","Categoría","Tipo","Contexto","Mes","Año"],
+    "Resumen_Mensual": ["Usuario","Año","Mes","Categoría","Total"],
+  };
+
+  // Renombrar la hoja por defecto a "Gastos"
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+  const defaultSheetId = meta.data.sheets[0].properties.sheetId;
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: sheetId,
+    resource: {
+      requests: [
+        { updateSheetProperties: { properties: { sheetId: defaultSheetId, title: "Gastos" }, fields: "title" } },
+        { addSheet: { properties: { title: "Resumen_Mensual" } } },
+      ],
+    },
+  });
+
+  // Escribir encabezados
+  for (const [title, headers] of Object.entries(SHEET_HEADERS)) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: `${title}!A1`,
+      valueInputOption: "RAW",
+      resource: { values: [headers] },
+    });
+  }
+
+  return sheetId;
+}
+
+// Escribe un gasto en el Sheet del usuario.
+// Si es el primer gasto, crea el Sheet primero.
+async function appendToUserSheet(telegramId, userName, scope, groupId, expense) {
+  const auth = await getAuthClientForUser(telegramId);
+  if (!auth) return; // sin OAuth configurado, silenciar
+
+  const sheets = google.sheets({ version: "v4", auth });
+
+  // Obtener o crear el sheet_id
+  let { rows } = await pool.query(
+    "SELECT sheet_id FROM user_google_tokens WHERE telegram_id = $1",
+    [String(telegramId)]
+  );
+  let sheetId = rows[0]?.sheet_id;
+
+  if (!sheetId) {
+    try {
+      sheetId = await createUserSheet(auth, userName);
+      await pool.query(
+        "UPDATE user_google_tokens SET sheet_id = $1 WHERE telegram_id = $2",
+        [sheetId, String(telegramId)]
+      );
+      console.log(`📊 Sheet creado para ${userName}: ${sheetId}`);
+    } catch (e) {
+      console.error("Error creando Sheet:", e.message);
+      return;
+    }
+  }
+
   const date      = new Date(expense.date);
   const year      = date.getFullYear();
   const monthName = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"][date.getMonth()];
+  const ctx       = scope === "group" ? `Grupal (${groupId})` : "Personal";
+
   try {
-    await client.spreadsheets.values.append({
-      spreadsheetId: SHEET_ID, range: "Gastos!A:K", valueInputOption: "USER_ENTERED",
-      resource: { values: [[expense.id, scope, groupId||"", userName, expense.date, expense.desc, expense.amt, expense.cat, expense.type, monthName, year]] },
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: sheetId,
+      range: "Gastos!A:J",
+      valueInputOption: "USER_ENTERED",
+      resource: { values: [[expense.id, userName, expense.date, expense.desc, expense.amt, expense.cat, expense.type, ctx, monthName, year]] },
     });
-    await updateMonthlyResume(client, scope, groupId, userName, year, monthName, expense.cat, expense.amt);
-  } catch (e) { console.error("Sheets append:", e.message); }
+    await updateUserMonthlyResume(sheets, sheetId, userName, year, monthName, expense.cat, expense.amt);
+  } catch (e) { console.error("Error escribiendo en Sheet:", e.message); }
 }
 
-async function updateMonthlyResume(client, scope, groupId, userName, year, monthName, cat, amt) {
-  const res  = await client.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "Resumen_Mensual!A:G" }).catch(() => null);
+async function updateUserMonthlyResume(sheets, sheetId, userName, year, monthName, cat, amt) {
+  const res  = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: "Resumen_Mensual!A:E" }).catch(() => null);
   const rows = res?.data?.values || [];
   const idx  = rows.findIndex((r, i) =>
-    i > 0 && r[0]===scope && r[1]===(groupId||"") && r[2]===userName &&
-    String(r[3])===String(year) && r[4]===monthName && r[5]===cat
+    i > 0 && r[0] === userName && String(r[1]) === String(year) && r[2] === monthName && r[3] === cat
   );
   if (idx >= 0) {
-    await client.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID, range: `Resumen_Mensual!G${idx+1}`,
-      valueInputOption: "USER_ENTERED", resource: { values: [[(parseFloat(rows[idx][6])||0)+amt]] },
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId, range: `Resumen_Mensual!E${idx + 1}`,
+      valueInputOption: "USER_ENTERED", resource: { values: [[(parseFloat(rows[idx][4]) || 0) + amt]] },
     });
   } else {
-    await client.spreadsheets.values.append({
-      spreadsheetId: SHEET_ID, range: "Resumen_Mensual!A:G",
-      valueInputOption: "USER_ENTERED", resource: { values: [[scope, groupId||"", userName, year, monthName, cat, amt]] },
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: sheetId, range: "Resumen_Mensual!A:E",
+      valueInputOption: "USER_ENTERED", resource: { values: [[userName, year, monthName, cat, amt]] },
     });
   }
 }
+
+// Sincroniza TODOS los gastos históricos del usuario al Sheet (llamada manual desde la app)
+async function syncAllExpensesToSheet(telegramId, userName) {
+  const auth = await getAuthClientForUser(telegramId);
+  if (!auth) return { ok: false, error: "Sin conexión a Google" };
+
+  const { rows: expenses } = await pool.query(
+    `SELECT id, description AS desc, amount::float AS amt, category AS cat,
+            type, date::text, scope, group_id
+     FROM expenses WHERE user_id = $1 ORDER BY date ASC, created_at ASC`,
+    [String(telegramId)]
+  );
+  if (!expenses.length) return { ok: true, count: 0 };
+
+  const sheets = google.sheets({ version: "v4", auth });
+  let { rows } = await pool.query("SELECT sheet_id FROM user_google_tokens WHERE telegram_id = $1", [String(telegramId)]);
+  let sheetId  = rows[0]?.sheet_id;
+
+  if (!sheetId) {
+    sheetId = await createUserSheet(auth, userName);
+    await pool.query("UPDATE user_google_tokens SET sheet_id = $1 WHERE telegram_id = $2", [sheetId, String(telegramId)]);
+  }
+
+  // Limpiar hoja Gastos (mantener encabezados) y reescribir todo
+  await sheets.spreadsheets.values.clear({ spreadsheetId: sheetId, range: "Gastos!A2:Z" });
+  await sheets.spreadsheets.values.clear({ spreadsheetId: sheetId, range: "Resumen_Mensual!A2:Z" });
+
+  const MONTHS_ARR = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  const gastoRows  = expenses.map(e => {
+    const d   = new Date(e.date);
+    const ctx = e.scope === "group" ? `Grupal (${e.group_id})` : "Personal";
+    return [e.id, userName, e.date, e.desc, e.amt, e.cat, e.type, ctx, MONTHS_ARR[d.getMonth()], d.getFullYear()];
+  });
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: sheetId, range: "Gastos!A2", valueInputOption: "USER_ENTERED",
+    resource: { values: gastoRows },
+  });
+
+  // Reconstruir resumen mensual
+  const resumen = {};
+  for (const e of expenses) {
+    const d   = new Date(e.date);
+    const key = `${userName}|${d.getFullYear()}|${MONTHS_ARR[d.getMonth()]}|${e.cat}`;
+    resumen[key] = (resumen[key] || 0) + e.amt;
+  }
+  const resumenRows = Object.entries(resumen).map(([k, total]) => {
+    const [u, year, month, cat] = k.split("|");
+    return [u, year, month, cat, total];
+  });
+  if (resumenRows.length) {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: sheetId, range: "Resumen_Mensual!A2", valueInputOption: "USER_ENTERED",
+      resource: { values: resumenRows },
+    });
+  }
+
+  return { ok: true, count: expenses.length, sheetId };
+}
+
+
+
+
+
+
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -557,12 +705,13 @@ app.post("/webhook", async (req, res) => {
     if (!expense) return sendMessage(chatId, '❌ Formato incorrecto. Probá: `gasto 2800 supermercado`');
 
     await saveExpense(userId, userName, groupId, scope, expense);
-    appendToSheet(scope, groupId, userName, expense).catch(console.error);
+    // Sheets: escribir en el Sheet del usuario en background (solo si tiene OAuth conectado)
+    appendToUserSheet(userId, userName, scope, groupId, expense).catch(console.error);
 
     const total = isGroup ? await monthTotalGroup(groupId) : await monthTotalPrivate(userId);
     const icon  = isGroup ? "👥" : "👤";
     return sendMessage(chatId,
-      `✅ *Guardado* ${icon}${SHEET_ID?" 📊":""}\n\n` +
+      `✅ *Guardado* ${icon}${OAUTH_CLIENT_ID?" 📊":""}\n\n` +
       `📝 ${expense.desc}\n💵 *${fmt(expense.amt)}*\n🏷️ ${expense.cat} · ${expense.type}\n📅 ${expense.date}\n\n` +
       `_Total ${isGroup?"del grupo":"personal"} este mes: ${fmt(total)}_`
     );
@@ -834,10 +983,98 @@ app.delete("/api/gastos/:id", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+
+// ── Endpoints OAuth Google ────────────────────────────────────────────────────
+
+// Inicia el flujo OAuth para el usuario. El telegramId va en el state.
+app.get("/auth/google", (req, res) => {
+  const { telegramId } = req.query;
+  if (!telegramId) return res.status(400).json({ error: "telegramId requerido" });
+  const oauth2 = makeOAuthClient();
+  if (!oauth2) return res.status(503).json({ error: "OAuth no configurado en el servidor" });
+
+  const url = oauth2.generateAuthUrl({
+    access_type: "offline",
+    prompt:      "consent",  // forzar para obtener siempre refresh_token
+    scope: [
+      "https://www.googleapis.com/auth/spreadsheets",
+      "https://www.googleapis.com/auth/drive.file",
+    ],
+    state: telegramId,
+  });
+  res.redirect(url);
+});
+
+// Google redirige aquí con el código de autorización
+app.get("/auth/google/callback", async (req, res) => {
+  const { code, state: telegramId, error } = req.query;
+
+  if (error) return res.send(`<h2>Acceso denegado</h2><p>${error}</p>`);
+  if (!code || !telegramId) return res.status(400).send("Parámetros inválidos");
+
+  const oauth2 = makeOAuthClient();
+  try {
+    const { tokens } = await oauth2.getToken(code);
+    if (!tokens.refresh_token) {
+      return res.send("<h2>Error</h2><p>No se obtuvo refresh_token. Intentá desconectar y reconectar tu cuenta de Google.</p>");
+    }
+    await pool.query(
+      `INSERT INTO user_google_tokens (telegram_id, access_token, refresh_token, expires_at)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (telegram_id) DO UPDATE
+         SET access_token = $2, refresh_token = $3, expires_at = $4, sheet_id = NULL`,
+      [String(telegramId), tokens.access_token, tokens.refresh_token, new Date(tokens.expiry_date)]
+    );
+    res.send(`
+      <html><body style="font-family:sans-serif;padding:40px;text-align:center">
+        <h2>✅ Google conectado correctamente</h2>
+        <p>Tu cuenta de Google quedó vinculada. El Sheet se creará automáticamente cuando registres tu primer gasto.</p>
+        <p style="margin-top:20px"><a href="/">Volver a la app</a></p>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error("OAuth callback error:", e.message);
+    res.status(500).send(`<h2>Error</h2><p>${e.message}</p>`);
+  }
+});
+
+// Desconectar Google de un usuario
+app.delete("/auth/google", async (req, res) => {
+  const { telegramId, secret } = req.query;
+  if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
+  if (!telegramId) return res.status(400).json({ error: "telegramId requerido" });
+  await pool.query("DELETE FROM user_google_tokens WHERE telegram_id = $1", [String(telegramId)]);
+  res.json({ ok: true });
+});
+
+// Estado de conexión OAuth del usuario
+app.get("/api/sheets/status", async (req, res) => {
+  const { telegramId, secret } = req.query;
+  if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
+  if (!telegramId) return res.status(400).json({ error: "telegramId requerido" });
+  const { rows } = await pool.query(
+    "SELECT sheet_id, expires_at FROM user_google_tokens WHERE telegram_id = $1",
+    [String(telegramId)]
+  );
+  if (!rows.length) return res.json({ connected: false });
+  res.json({ connected: true, sheetId: rows[0].sheet_id, expiresAt: rows[0].expires_at });
+});
+
+// Sincronización manual completa desde la app web
+app.post("/api/sheets/sync", async (req, res) => {
+  const { telegramId, secret, userName } = req.query;
+  if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
+  if (!telegramId) return res.status(400).json({ error: "telegramId requerido" });
+  try {
+    const result = await syncAllExpensesToSheet(String(telegramId), userName || "Usuario");
+    res.json(result);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/health", async (req, res) => {
   try {
     await pool.query("SELECT 1");
-    res.json({ ok: true, db: "postgres", sheets: !!SHEET_ID&&!!GOOGLE_CREDS, webhook: !!BOT_TOKEN, ts: new Date().toISOString() });
+    res.json({ ok: true, db: "postgres", sheets: !!OAUTH_CLIENT_ID&&!!OAUTH_CLIENT_SECRET, webhook: !!BOT_TOKEN, ts: new Date().toISOString() });
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
@@ -862,11 +1099,10 @@ app.listen(PORT, async () => {
   await initDB();
   await cleanExpiredSessions();
   setInterval(cleanExpiredSessions, 60 * 60 * 1000); // cada hora
-  if (SHEET_ID && GOOGLE_CREDS) {
-    console.log("📊 Google Sheets: configurado");
-    await getSheetsClient().catch(console.error);
+  if (OAUTH_CLIENT_ID && OAUTH_CLIENT_SECRET) {
+    console.log("📊 Google OAuth: configurado");
   } else {
-    console.log("📊 Google Sheets: no configurado (opcional)");
+    console.log("📊 Google OAuth: no configurado (agregar GOOGLE_OAUTH_CLIENT_ID y GOOGLE_OAUTH_CLIENT_SECRET)");
   }
   await registerWebhook();
 });

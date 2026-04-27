@@ -16,6 +16,7 @@ import { curKey, getKey, CATEGORIES } from "./config.js";
 import { adminLogin, adminLogout, checkAdminSession, isAdminLoggedIn,
          renderAdminPanel, renderUserExpensesModal,
          fetchAdminConfig, saveAdminConfig } from "./admin.js";
+import { connectGoogle, disconnectGoogle, syncToSheet, renderSheetsCard } from "./sheets.js";
 
 // ── Estado de navegación ──────────────────────────────────────────────────────
 
@@ -66,7 +67,7 @@ export function switchTab(name) {
   if (name === "resumen")  renderResumen(currentView, activeGroupId);
   if (name === "gastos")   renderList();
   if (name === "comparar") renderCompare();
-  if (name === "config")   { renderConfig(); checkServerHealth(); }
+  if (name === "config")   { renderConfig(); checkServerHealth(); renderSheetsCard(); }
   if (name === "admin")    renderAdminScreen();
 }
 
@@ -260,6 +261,9 @@ window.__saveEdit          = saveEdit;
 window.__renderList        = renderList;
 window.__saveServerConfig  = () => { saveServerConfig(); pushConfig(); };
 window.__syncUserManual    = syncUserManual;
+window.__connectGoogle     = connectGoogle;
+window.__disconnectGoogle  = disconnectGoogle;
+window.__syncToSheet       = syncToSheet;
 
 // ── Admin ──────────────────────────────────────────────────────────────────────
 window.__adminLoginFromUI = async () => {
