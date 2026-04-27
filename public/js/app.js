@@ -1,28 +1,25 @@
 // ── app.js — coordinador principal de la aplicación ─────────────────────────
 // Punto de entrada. Orquesta el resto de módulos.
 
-import {
-    initStorage, users, groups, activeId, serverCfg,
-    setActiveId, saveUsers, saveActive, saveGroups,
-    curData, curExpenses, saveUserData, activeUser,
-    loadUserData, getConfigKey, serializeConfig, applyConfig
-} from "./storage.js";
+import { initStorage, users, groups, activeId, serverCfg,
+         setActiveId, saveUsers, saveActive, saveGroups,
+         curData, curExpenses, saveUserData, activeUser,
+         loadUserData, getConfigKey, serializeConfig, applyConfig } from "./storage.js";
 import { updateHeader, setSyncStatus, toast } from "./ui.js";
-import {
-    renderResumen, renderList, renderCompare, renderConfig,
-    selectedMonths, setSelectedMonths
-} from "./renders.js";
-import {
-    syncNow, syncUserManual, deleteExpenseRemote, saveServerConfig,
-    checkServerHealth, fetchRemoteConfig, pushRemoteConfig,
-    fetchServerInfo
-} from "./api.js";
+import { renderResumen, renderList, renderCompare, renderConfig,
+         selectedMonths, setSelectedMonths } from "./renders.js";
+import { syncNow, syncUserManual, deleteExpenseRemote, saveServerConfig,
+         checkServerHealth, fetchRemoteConfig, pushRemoteConfig,
+         fetchServerInfo } from "./api.js";
 import { openEditFromBtn, closeEditModal, saveEdit } from "./modals.js";
 import { curKey, getKey, CATEGORIES } from "./config.js";
+import { adminLogin, adminLogout, checkAdminSession, isAdminLoggedIn,
+         renderAdminPanel, renderUserExpensesModal,
+         fetchAdminConfig, saveAdminConfig } from "./admin.js";
 
 // ── Estado de navegación ──────────────────────────────────────────────────────
 
-let currentView = "personal";
+let currentView   = "personal";
 let activeGroupId = null;
 
 // ── Config remota ─────────────────────────────────────────────────────────────
@@ -30,172 +27,196 @@ let activeGroupId = null;
 // del dispositivo o navegador.
 
 async function pushConfig() {
-    const key = getConfigKey();
-    if (!key) return; // sin telegramId no se puede guardar en el servidor
-    await pushRemoteConfig(key, serializeConfig());
+  const key = getConfigKey();
+  if (!key) return; // sin telegramId no se puede guardar en el servidor
+  await pushRemoteConfig(key, serializeConfig());
+}
+
+// ── Pantalla admin ────────────────────────────────────────────────────────────
+
+async function renderAdminScreen() {
+  const loginDiv = document.getElementById("admin-login");
+  const panelDiv = document.getElementById("admin-panel");
+  if (!loginDiv || !panelDiv) return;
+
+  if (isAdminLoggedIn()) {
+    // Verificar que la sesión sigue activa en el servidor
+    const stillValid = await checkAdminSession();
+    if (stillValid) {
+      loginDiv.style.display  = "none";
+      panelDiv.style.display  = "block";
+      await renderAdminPanel();
+      return;
+    }
+  }
+  // Sin sesión: mostrar login
+  loginDiv.style.display = "block";
+  panelDiv.style.display = "none";
 }
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 
 export function switchTab(name) {
-    document.querySelectorAll(".tab").forEach((t, i) =>
-        t.classList.toggle("active", ["resumen", "agregar", "gastos", "comparar", "config"][i] === name)
-    );
-    document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
-    document.getElementById("screen-" + name).classList.add("active");
-    if (name === "resumen") renderResumen(currentView, activeGroupId);
-    if (name === "gastos") renderList();
-    if (name === "comparar") renderCompare();
-    if (name === "config") { renderConfig(); checkServerHealth(); }
+  const TAB_NAMES = ["resumen","agregar","gastos","comparar","config","admin"];
+  document.querySelectorAll(".tab").forEach((t, i) =>
+    t.classList.toggle("active", TAB_NAMES[i] === name)
+  );
+  document.querySelectorAll(".screen").forEach((s) => s.classList.remove("active"));
+  document.getElementById("screen-" + name).classList.add("active");
+  if (name === "resumen")  renderResumen(currentView, activeGroupId);
+  if (name === "gastos")   renderList();
+  if (name === "comparar") renderCompare();
+  if (name === "config")   { renderConfig(); checkServerHealth(); }
+  if (name === "admin")    renderAdminScreen();
 }
 
 export function refresh() {
-    renderResumen(currentView, activeGroupId);
-    renderList();
-    renderCompare();
+  renderResumen(currentView, activeGroupId);
+  renderList();
+  renderCompare();
 }
 
 // ── Selector de vista personal/grupal ─────────────────────────────────────────
 
 export function updateViewSelector() {
-    const sel = document.getElementById("view-selector");
-    sel.innerHTML =
-        '<option value="personal">👤 Personal</option>' +
-        groups.map((g) => `<option value="group_${g.id}">👥 ${g.name}</option>`).join("");
-    sel.value = currentView === "group" && activeGroupId ? "group_" + activeGroupId : "personal";
+  const sel = document.getElementById("view-selector");
+  sel.innerHTML =
+    '<option value="personal">👤 Personal</option>' +
+    groups.map((g) => `<option value="group_${g.id}">👥 ${g.name}</option>`).join("");
+  sel.value = currentView === "group" && activeGroupId ? "group_" + activeGroupId : "personal";
 }
 
 export function switchView(val) {
-    if (val === "personal") {
-        currentView = "personal"; activeGroupId = null;
-    } else {
-        const uid = val.replace("group_", "");
-        const g = groups.find((x) => x.id === uid);
-        if (g) { currentView = "group"; activeGroupId = uid; }
-    }
-    setSelectedMonths([]);
-    refresh();
+  if (val === "personal") {
+    currentView = "personal"; activeGroupId = null;
+  } else {
+    const uid = val.replace("group_", "");
+    const g   = groups.find((x) => x.id === uid);
+    if (g) { currentView = "group"; activeGroupId = uid; }
+  }
+  setSelectedMonths([]);
+  refresh();
 }
 
 // ── Usuarios ──────────────────────────────────────────────────────────────────
 
 export function setActiveUser(uid) {
-    setActiveId(uid);
-    saveActive();
-    setSelectedMonths([]);
-    renderConfig();
-    updateHeader();
-    refresh();
-    if (serverCfg.autoSync) syncNow(true);
+  setActiveId(uid);
+  saveActive();
+  setSelectedMonths([]);
+  renderConfig();
+  updateHeader();
+  refresh();
+  if (serverCfg.autoSync) syncNow(true);
 }
 
 export function addUser() {
-    const name = document.getElementById("new-username").value.trim();
-    const tid = document.getElementById("new-userid").value.trim();
-    if (!name) { toast("Escribí un nombre", false); return; }
-    users.push({ id: "u" + Date.now(), name, telegramId: tid || null });
-    saveUsers();
-    if (!activeId) { setActiveId(users[users.length - 1].id); saveActive(); }
-    document.getElementById("new-username").value = "";
-    document.getElementById("new-userid").value = "";
-    renderConfig();
-    updateHeader();
-    updateViewSelector();
-    pushConfig();
-    toast("✓ Usuario agregado");
+  const name = document.getElementById("new-username").value.trim();
+  const tid  = document.getElementById("new-userid").value.trim();
+  if (!name) { toast("Escribí un nombre", false); return; }
+  users.push({ id: "u" + Date.now(), name, telegramId: tid || null });
+  saveUsers();
+  if (!activeId) { setActiveId(users[users.length - 1].id); saveActive(); }
+  document.getElementById("new-username").value = "";
+  document.getElementById("new-userid").value   = "";
+  renderConfig();
+  updateHeader();
+  updateViewSelector();
+  pushConfig();
+  toast("✓ Usuario agregado");
 }
 
 export function deleteUser(uid) {
-    if (!confirm("¿Eliminar usuario y todos sus datos?")) return;
-    const idx = users.findIndex((u) => u.id === uid);
-    if (idx >= 0) users.splice(idx, 1);
-    localStorage.removeItem("gastos_data_" + uid);
-    saveUsers();
-    if (activeId === uid) { setActiveId(users[0]?.id || null); saveActive(); }
-    renderConfig();
-    updateHeader();
-    pushConfig();
-    refresh();
+  if (!confirm("¿Eliminar usuario y todos sus datos?")) return;
+  const idx = users.findIndex((u) => u.id === uid);
+  if (idx >= 0) users.splice(idx, 1);
+  localStorage.removeItem("gastos_data_" + uid);
+  saveUsers();
+  if (activeId === uid) { setActiveId(users[0]?.id || null); saveActive(); }
+  renderConfig();
+  updateHeader();
+  pushConfig();
+  refresh();
 }
 
 // ── Grupos ────────────────────────────────────────────────────────────────────
 
 export function addGroup() {
-    const name = document.getElementById("new-groupname").value.trim();
-    const gid = document.getElementById("new-groupid").value.trim();
-    if (!name || !gid) { toast("Completá nombre e ID del grupo", false); return; }
-    groups.push({ id: "g" + Date.now(), name, telegramId: gid });
-    saveGroups();
-    document.getElementById("new-groupname").value = "";
-    document.getElementById("new-groupid").value = "";
-    renderConfig();
-    updateViewSelector();
-    pushConfig();
-    toast("✓ Grupo agregado");
+  const name = document.getElementById("new-groupname").value.trim();
+  const gid  = document.getElementById("new-groupid").value.trim();
+  if (!name || !gid) { toast("Completá nombre e ID del grupo", false); return; }
+  groups.push({ id: "g" + Date.now(), name, telegramId: gid });
+  saveGroups();
+  document.getElementById("new-groupname").value = "";
+  document.getElementById("new-groupid").value   = "";
+  renderConfig();
+  updateViewSelector();
+  pushConfig();
+  toast("✓ Grupo agregado");
 }
 
 export function deleteGroup(uid) {
-    if (!confirm("¿Eliminar este grupo?")) return;
-    const idx = groups.findIndex((g) => g.id === uid);
-    if (idx >= 0) groups.splice(idx, 1);
-    saveGroups();
-    if (activeGroupId === uid) { activeGroupId = null; currentView = "personal"; }
-    renderConfig();
-    updateViewSelector();
-    pushConfig();
-    refresh();
+  if (!confirm("¿Eliminar este grupo?")) return;
+  const idx = groups.findIndex((g) => g.id === uid);
+  if (idx >= 0) groups.splice(idx, 1);
+  saveGroups();
+  if (activeGroupId === uid) { activeGroupId = null; currentView = "personal"; }
+  renderConfig();
+  updateViewSelector();
+  pushConfig();
+  refresh();
 }
 
 // ── Gastos ────────────────────────────────────────────────────────────────────
 
 export function addExpense() {
-    if (!activeId) { toast("Primero agregá un usuario en Config", false); return; }
-    const desc = document.getElementById("new-desc").value.trim();
-    const amt = parseFloat(document.getElementById("new-amt").value);
-    const cat = document.getElementById("new-cat").value;
-    const type = document.getElementById("new-type").value;
-    const date = document.getElementById("new-date").value;
-    if (!desc || !amt || amt <= 0) { toast("Completá descripción y monto", false); return; }
-    const data = curData();
-    const key = curKey();
-    if (!data[key]) data[key] = [];
-    data[key].push({ id: Date.now(), desc, amt, cat, type, date });
-    saveUserData(activeId, data);
-    document.getElementById("new-desc").value = "";
-    document.getElementById("new-amt").value = "";
-    toast("✓ Gasto guardado");
-    renderResumen(currentView, activeGroupId);
+  if (!activeId) { toast("Primero agregá un usuario en Config", false); return; }
+  const desc = document.getElementById("new-desc").value.trim();
+  const amt  = parseFloat(document.getElementById("new-amt").value);
+  const cat  = document.getElementById("new-cat").value;
+  const type = document.getElementById("new-type").value;
+  const date = document.getElementById("new-date").value;
+  if (!desc || !amt || amt <= 0) { toast("Completá descripción y monto", false); return; }
+  const data = curData();
+  const key  = curKey();
+  if (!data[key]) data[key] = [];
+  data[key].push({ id: Date.now(), desc, amt, cat, type, date });
+  saveUserData(activeId, data);
+  document.getElementById("new-desc").value = "";
+  document.getElementById("new-amt").value  = "";
+  toast("✓ Gasto guardado");
+  renderResumen(currentView, activeGroupId);
 }
 
 export function quickAdd(desc, cat) {
-    document.getElementById("new-desc").value = desc;
-    document.getElementById("new-cat").value = cat;
-    document.getElementById("new-amt").focus();
-    switchTab("agregar");
+  document.getElementById("new-desc").value = desc;
+  document.getElementById("new-cat").value  = cat;
+  document.getElementById("new-amt").focus();
+  switchTab("agregar");
 }
 
 export function deleteExpense(id) {
-    if (!confirm("¿Eliminar este gasto?")) return;
-    const data = curData();
-    for (const key of Object.keys(data)) {
-        const idx = data[key].findIndex((e) => String(e.id) === String(id));
-        if (idx >= 0) { data[key].splice(idx, 1); break; }
-    }
-    saveUserData(activeId, data);
-    deleteExpenseRemote(id);
-    renderList();
-    renderResumen(currentView, activeGroupId);
-    toast("Gasto eliminado");
+  if (!confirm("¿Eliminar este gasto?")) return;
+  const data = curData();
+  for (const key of Object.keys(data)) {
+    const idx = data[key].findIndex((e) => String(e.id) === String(id));
+    if (idx >= 0) { data[key].splice(idx, 1); break; }
+  }
+  saveUserData(activeId, data);
+  deleteExpenseRemote(id);
+  renderList();
+  renderResumen(currentView, activeGroupId);
+  toast("Gasto eliminado");
 }
 
 export function toggleMonth(k) {
-    const arr = [...selectedMonths];
-    const idx = arr.indexOf(k);
-    if (idx >= 0) arr.splice(idx, 1);
-    else if (arr.length < 5) arr.push(k);
-    arr.sort();
-    setSelectedMonths(arr);
-    renderCompare();
+  const arr = [...selectedMonths];
+  const idx = arr.indexOf(k);
+  if (idx >= 0) arr.splice(idx, 1);
+  else if (arr.length < 5) arr.push(k);
+  arr.sort();
+  setSelectedMonths(arr);
+  renderCompare();
 }
 
 // ── Exponer funciones al HTML (onclick en elementos generados dinámicamente) ──
@@ -204,89 +225,137 @@ export function toggleMonth(k) {
 
 // Verificar URL del servidor antes de guardar
 async function verifyServerUrl() {
-    const url = document.getElementById("server-url").value.trim();
-    const statusEl = document.getElementById("server-url-status");
-    if (!url) { statusEl.textContent = "Ingresá una URL"; return; }
-    statusEl.textContent = "Verificando...";
-    try {
-        const res = await fetch(`${url}/api/health`);
-        const json = await res.json();
-        if (json.ok) {
-            statusEl.innerHTML = '<span style="color:#1D9E75">✓ Servidor conectado · DB: ' + json.db + (json.sheets ? " · Sheets activo" : "") + "</span>";
-        } else {
-            statusEl.innerHTML = '<span style="color:#D85A30">⚠ Servidor respondió con error</span>';
-        }
-    } catch {
-        statusEl.innerHTML = '<span style="color:#D85A30">✗ No se pudo conectar</span>';
+  const url = document.getElementById("server-url").value.trim();
+  const statusEl = document.getElementById("server-url-status");
+  if (!url) { statusEl.textContent = "Ingresá una URL"; return; }
+  statusEl.textContent = "Verificando...";
+  try {
+    const res = await fetch(`${url}/api/health`);
+    const json = await res.json();
+    if (json.ok) {
+      statusEl.innerHTML = '<span style="color:#1D9E75">✓ Servidor conectado · DB: ' + json.db + (json.sheets ? " · Sheets activo" : "") + "</span>";
+    } else {
+      statusEl.innerHTML = '<span style="color:#D85A30">⚠ Servidor respondió con error</span>';
     }
+  } catch {
+    statusEl.innerHTML = '<span style="color:#D85A30">✗ No se pudo conectar</span>';
+  }
 }
 
-window.__switchTab = switchTab;
-window.__switchView = switchView;
-window.__syncNow = () => syncNow(false);
-window.__addExpense = addExpense;
-window.__quickAdd = quickAdd;
-window.__deleteExpense = deleteExpense;
-window.__toggleMonth = toggleMonth;
-window.__setActiveUser = setActiveUser;
-window.__deleteUser = deleteUser;
-window.__addUser = addUser;
-window.__addGroup = addGroup;
-window.__deleteGroup = deleteGroup;
-window.__openEditFromBtn = openEditFromBtn;
-window.__closeEditModal = closeEditModal;
-window.__saveEdit = saveEdit;
-window.__renderList = renderList;
-window.__saveServerConfig = () => { saveServerConfig(); pushConfig(); };
-window.__syncUserManual = syncUserManual;
-window.__verifyServerUrl = verifyServerUrl;
+window.__switchTab         = switchTab;
+window.__switchView        = switchView;
+window.__syncNow           = () => syncNow(false);
+window.__addExpense        = addExpense;
+window.__quickAdd          = quickAdd;
+window.__deleteExpense     = deleteExpense;
+window.__toggleMonth       = toggleMonth;
+window.__setActiveUser     = setActiveUser;
+window.__deleteUser        = deleteUser;
+window.__addUser           = addUser;
+window.__addGroup          = addGroup;
+window.__deleteGroup       = deleteGroup;
+window.__openEditFromBtn   = openEditFromBtn;
+window.__closeEditModal    = closeEditModal;
+window.__saveEdit          = saveEdit;
+window.__renderList        = renderList;
+window.__saveServerConfig  = () => { saveServerConfig(); pushConfig(); };
+window.__syncUserManual    = syncUserManual;
+window.__verifyServerUrl   = verifyServerUrl;
+
+// ── Admin ──────────────────────────────────────────────────────────────────────
+window.__adminLoginFromUI = async () => {
+  const telegramId = document.getElementById("admin-telegram-id").value.trim();
+  const password   = document.getElementById("admin-password").value;
+  const errEl      = document.getElementById("admin-login-error");
+  errEl.textContent = "Verificando...";
+  const result = await adminLogin(telegramId, password);
+  if (result.ok) {
+    errEl.textContent = "";
+    renderAdminScreen();
+  } else {
+    errEl.textContent = result.error || "Credenciales incorrectas";
+    document.getElementById("admin-password").value = "";
+  }
+};
+
+window.__adminLogout = async () => {
+  await adminLogout();
+  renderAdminScreen();
+  toast("Sesión admin cerrada");
+};
+
+window.__adminViewExpenses = (telegramId, userName) => {
+  renderUserExpensesModal(telegramId, userName);
+};
+
+window.__saveAdminConfigFromUI = async () => {
+  const secret = document.getElementById("admin-api-secret").value.trim();
+  const ok     = await saveAdminConfig({ apiSecret: secret });
+  toast(ok ? "✓ Configuración guardada" : "Error al guardar", ok);
+};
+
+window.__toggleSecretVisibility = () => {
+  const input = document.getElementById("admin-api-secret");
+  input.type  = input.type === "password" ? "text" : "password";
+};
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 async function init() {
-    initStorage();
+  initStorage();
 
-    // Inicializar selectores de fecha
-    const now = new Date();
-    document.getElementById("month-select").value = now.getMonth();
-    document.getElementById("year-select").value = now.getFullYear();
-    document.getElementById("new-date").value = now.toISOString().split("T")[0];
-    document.getElementById("month-select").addEventListener("change", refresh);
-    document.getElementById("year-select").addEventListener("change", refresh);
+  // Inicializar selectores de fecha
+  const now = new Date();
+  document.getElementById("month-select").value = now.getMonth();
+  document.getElementById("year-select").value  = now.getFullYear();
+  document.getElementById("new-date").value      = now.toISOString().split("T")[0];
+  document.getElementById("month-select").addEventListener("change", refresh);
+  document.getElementById("year-select").addEventListener("change",  refresh);
 
-    updateHeader();
-    updateViewSelector();
+  updateHeader();
+  updateViewSelector();
 
-    // ── Paso 1: resolver la URL del servidor ──────────────────────────────────
-    // Si ya hay una URL guardada localmente, la usamos directamente.
-    // Si no, la app queda en espera — el usuario debe ingresarla en Config.
-    if (!serverCfg.url) {
-        setSyncStatus("idle", "Ingresá la URL del servidor en ⚙ Config");
-        renderResumen(currentView, activeGroupId);
-        return;
-    }
-
-    // ── Paso 2: cargar config remota usando el telegramId del usuario activo ──
-    const configKey = getConfigKey();
-    if (configKey && serverCfg.secret) {
-        setSyncStatus("syncing", "Cargando configuración...");
-        const remote = await fetchRemoteConfig(configKey);
-        if (remote) {
-            applyConfig(remote);
-            updateHeader();
-            updateViewSelector();
-            setSyncStatus("ok", "Configuración cargada");
-        } else {
-            setSyncStatus("idle", "Sin configuración remota aún");
-        }
-    } else {
-        setSyncStatus("idle", serverCfg.secret ? "Agregá tu ID de Telegram en Config" : "Completá la configuración en ⚙ Config");
-    }
-
+  // ── Paso 1: resolver la URL del servidor ──────────────────────────────────
+  // Si ya hay una URL guardada localmente, la usamos directamente.
+  // Si no, la app queda en espera — el usuario debe ingresarla en Config.
+  if (!serverCfg.url) {
+    setSyncStatus("idle", "Ingresá la URL del servidor en ⚙ Config");
     renderResumen(currentView, activeGroupId);
+    return;
+  }
 
-    // ── Paso 3: auto-sync de gastos ───────────────────────────────────────────
-    if (serverCfg.autoSync && serverCfg.secret) syncNow(true);
+  // ── Paso 2: cargar config remota usando el telegramId del usuario activo ──
+  const configKey = getConfigKey();
+  if (configKey && serverCfg.secret) {
+    setSyncStatus("syncing", "Cargando configuración...");
+    const remote = await fetchRemoteConfig(configKey);
+    if (remote) {
+      applyConfig(remote);
+      updateHeader();
+      updateViewSelector();
+      setSyncStatus("ok", "Configuración cargada");
+    } else {
+      setSyncStatus("idle", "Sin configuración remota aún");
+    }
+  } else {
+    setSyncStatus("idle", serverCfg.secret ? "Agregá tu ID de Telegram en Config" : "Completá la configuración en ⚙ Config");
+  }
+
+  renderResumen(currentView, activeGroupId);
+
+  // Mostrar tab admin si el servidor responde
+  if (serverCfg.url) {
+    fetch(`${serverCfg.url}/api/info`)
+      .then(r => r.json())
+      .then(() => {
+        const tabAdmin = document.getElementById("tab-admin");
+        if (tabAdmin) tabAdmin.style.display = "";
+      })
+      .catch(() => {});
+  }
+
+  // ── Paso 3: auto-sync de gastos ───────────────────────────────────────────
+  if (serverCfg.autoSync && serverCfg.secret) syncNow(true);
 }
 
 init();

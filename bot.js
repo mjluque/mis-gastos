@@ -1,41 +1,46 @@
 /**
- * Bot de gastos v6 — individual + grupal + PostgreSQL + Google Sheets + app web
- * ───────────────────────────────────────────────────────────────────────────────
+ * Bot de gastos v10 — admin + roles + PostgreSQL + Google Sheets + app web
+ * ───────────────────────────────────────────────────────────────────────────
  * Variables de entorno:
- *   DATABASE_URL       → Connection string de Postgres (Railway lo inyecta)
- *   BOT_TOKEN          → Token de @BotFather
- *   WEBHOOK_URL        → URL pública (ej: https://mi-app.railway.app)
- *   API_SECRET         → Clave para la app web
- *   ALLOWED_IDS        → IDs de Telegram autorizados, separados por coma
- *   GOOGLE_SHEET_ID    → ID del Google Sheet
- *   GOOGLE_CREDENTIALS → JSON de credenciales de cuenta de servicio (una línea)
- *
- * Contextos:
- *   - Chat privado  → scope='private', group_id=NULL  → gastos solo del usuario
- *   - Chat de grupo → scope='group',   group_id=<id>  → gastos del grupo completo
+ *   DATABASE_URL         → Connection string de Postgres (Railway lo inyecta)
+ *   BOT_TOKEN            → Token de @BotFather
+ *   WEBHOOK_URL          → URL pública (ej: https://mi-app.railway.app)
+ *   API_SECRET           → Clave para la app web (solo la usa el admin)
+ *   ALLOWED_IDS          → IDs de Telegram autorizados, separados por coma
+ *   ADMIN_TELEGRAM_ID    → Telegram ID del usuario admin
+ *   ADMIN_PASSWORD_HASH  → Hash bcrypt de la contraseña admin (usar generate-hash.js)
+ *   JWT_SECRET           → Clave para firmar tokens de sesión (string largo aleatorio)
+ *   GOOGLE_SHEET_ID      → ID del Google Sheet
+ *   GOOGLE_CREDENTIALS   → JSON de credenciales de cuenta de servicio (una línea)
  */
 
 require("dotenv").config();
 
-const express = require("express");
-const path = require("path");
-const { Pool } = require("pg");
+const express    = require("express");
+const bcrypt     = require("bcrypt");
+const jwt        = require("jsonwebtoken");
+
+const path       = require("path");
+const { Pool }   = require("pg");
 const { google } = require("googleapis");
 
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
-const BOT_TOKEN = process.env.BOT_TOKEN;
-const WEBHOOK_URL = process.env.WEBHOOK_URL;
-const API_SECRET = process.env.API_SECRET || "cambiar-esto";
-const ALLOWED_IDS = process.env.ALLOWED_IDS
+const BOT_TOKEN          = process.env.BOT_TOKEN;
+const WEBHOOK_URL        = process.env.WEBHOOK_URL;
+const API_SECRET         = process.env.API_SECRET || "cambiar-esto";
+const ALLOWED_IDS        = process.env.ALLOWED_IDS
   ? process.env.ALLOWED_IDS.split(",").map((id) => id.trim())
   : [];
-const SHEET_ID = process.env.GOOGLE_SHEET_ID;
-const GOOGLE_CREDS = process.env.GOOGLE_CREDENTIALS
+const SHEET_ID           = process.env.GOOGLE_SHEET_ID;
+const GOOGLE_CREDS       = process.env.GOOGLE_CREDENTIALS
   ? JSON.parse(process.env.GOOGLE_CREDENTIALS)
   : null;
+const ADMIN_TELEGRAM_ID  = process.env.ADMIN_TELEGRAM_ID || null;
+const ADMIN_PWD_HASH     = process.env.ADMIN_PASSWORD_HASH || null;
+const JWT_SECRET         = process.env.JWT_SECRET || "cambiar-jwt-secret";
 
 // ── PostgreSQL ────────────────────────────────────────────────────────────────
 
@@ -72,7 +77,7 @@ async function initDB() {
     `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS scope     TEXT NOT NULL DEFAULT 'private'`,
     `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS user_name TEXT DEFAULT NULL`,
   ]) {
-    await pool.query(sql).catch(() => { });
+    await pool.query(sql).catch(() => {});
   }
 
   // Tabla de configuración de la app web
@@ -82,6 +87,17 @@ async function initDB() {
       config      JSONB       NOT NULL DEFAULT '{}',
       updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+
+  // Tabla de sesiones admin
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_sessions (
+      token       TEXT        PRIMARY KEY,
+      telegram_id TEXT        NOT NULL,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at  TIMESTAMPTZ NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_sessions_expires_idx ON admin_sessions (expires_at);
   `);
 
   console.log("✅ Base de datos lista");
@@ -139,7 +155,7 @@ async function saveExpense(userId, userName, groupId, scope, expense) {
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
      ON CONFLICT (id) DO NOTHING`,
     [expense.id, String(userId), userName, groupId || null, scope,
-    expense.desc, expense.amt, expense.cat, expense.type, expense.date]
+     expense.desc, expense.amt, expense.cat, expense.type, expense.date]
   );
 }
 
@@ -154,7 +170,7 @@ async function updateExpense(userId, id, fields) {
          type        = COALESCE($4, type),
          date        = COALESCE($5::date, date)
      WHERE id = $6 AND user_id = $7`,
-    [desc || null, amt || null, cat || null, type || null, date || null, id, String(userId)]
+    [desc||null, amt||null, cat||null, type||null, date||null, id, String(userId)]
   );
   return rowCount > 0;
 }
@@ -237,11 +253,11 @@ async function getSheetsClient() {
 async function ensureSheetStructure() {
   if (!sheetsClient || !SHEET_ID) return;
   try {
-    const meta = await sheetsClient.spreadsheets.get({ spreadsheetId: SHEET_ID });
+    const meta     = await sheetsClient.spreadsheets.get({ spreadsheetId: SHEET_ID });
     const existing = meta.data.sheets.map((s) => s.properties.title);
     const required = [
-      { title: "Gastos", headers: ["ID", "Scope", "Grupo", "Usuario", "Fecha", "Descripción", "Monto", "Categoría", "Tipo", "Mes", "Año"] },
-      { title: "Resumen_Mensual", headers: ["Scope", "Grupo", "Usuario", "Año", "Mes", "Categoría", "Total"] },
+      { title: "Gastos",          headers: ["ID","Scope","Grupo","Usuario","Fecha","Descripción","Monto","Categoría","Tipo","Mes","Año"] },
+      { title: "Resumen_Mensual", headers: ["Scope","Grupo","Usuario","Año","Mes","Categoría","Total"] },
     ];
     const toCreate = required.filter((r) => !existing.includes(r.title));
     if (toCreate.length) {
@@ -252,7 +268,7 @@ async function ensureSheetStructure() {
     }
     for (const sheet of required) {
       const range = `${sheet.title}!A1:${String.fromCharCode(64 + sheet.headers.length)}1`;
-      const res = await sheetsClient.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range }).catch(() => null);
+      const res   = await sheetsClient.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range }).catch(() => null);
       if (!res?.data?.values?.length) {
         await sheetsClient.spreadsheets.values.update({
           spreadsheetId: SHEET_ID, range, valueInputOption: "RAW",
@@ -268,34 +284,34 @@ async function ensureSheetStructure() {
 async function appendToSheet(scope, groupId, userName, expense) {
   const client = await getSheetsClient();
   if (!client) return;
-  const date = new Date(expense.date);
-  const year = date.getFullYear();
-  const monthName = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"][date.getMonth()];
+  const date      = new Date(expense.date);
+  const year      = date.getFullYear();
+  const monthName = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"][date.getMonth()];
   try {
     await client.spreadsheets.values.append({
       spreadsheetId: SHEET_ID, range: "Gastos!A:K", valueInputOption: "USER_ENTERED",
-      resource: { values: [[expense.id, scope, groupId || "", userName, expense.date, expense.desc, expense.amt, expense.cat, expense.type, monthName, year]] },
+      resource: { values: [[expense.id, scope, groupId||"", userName, expense.date, expense.desc, expense.amt, expense.cat, expense.type, monthName, year]] },
     });
     await updateMonthlyResume(client, scope, groupId, userName, year, monthName, expense.cat, expense.amt);
   } catch (e) { console.error("Sheets append:", e.message); }
 }
 
 async function updateMonthlyResume(client, scope, groupId, userName, year, monthName, cat, amt) {
-  const res = await client.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "Resumen_Mensual!A:G" }).catch(() => null);
+  const res  = await client.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "Resumen_Mensual!A:G" }).catch(() => null);
   const rows = res?.data?.values || [];
-  const idx = rows.findIndex((r, i) =>
-    i > 0 && r[0] === scope && r[1] === (groupId || "") && r[2] === userName &&
-    String(r[3]) === String(year) && r[4] === monthName && r[5] === cat
+  const idx  = rows.findIndex((r, i) =>
+    i > 0 && r[0]===scope && r[1]===(groupId||"") && r[2]===userName &&
+    String(r[3])===String(year) && r[4]===monthName && r[5]===cat
   );
   if (idx >= 0) {
     await client.spreadsheets.values.update({
-      spreadsheetId: SHEET_ID, range: `Resumen_Mensual!G${idx + 1}`,
-      valueInputOption: "USER_ENTERED", resource: { values: [[(parseFloat(rows[idx][6]) || 0) + amt]] },
+      spreadsheetId: SHEET_ID, range: `Resumen_Mensual!G${idx+1}`,
+      valueInputOption: "USER_ENTERED", resource: { values: [[(parseFloat(rows[idx][6])||0)+amt]] },
     });
   } else {
     await client.spreadsheets.values.append({
       spreadsheetId: SHEET_ID, range: "Resumen_Mensual!A:G",
-      valueInputOption: "USER_ENTERED", resource: { values: [[scope, groupId || "", userName, year, monthName, cat, amt]] },
+      valueInputOption: "USER_ENTERED", resource: { values: [[scope, groupId||"", userName, year, monthName, cat, amt]] },
     });
   }
 }
@@ -304,25 +320,25 @@ async function updateMonthlyResume(client, scope, groupId, userName, year, month
 
 function fmt(n) { return "$" + Number(n).toLocaleString("es-AR"); }
 
-const MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-const CATEGORIES = ["Alimentación", "Transporte", "Vivienda", "Salud", "Entretenimiento", "Ropa", "Educación", "Servicios", "Restaurantes", "Otros"];
+const MONTHS = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+const CATEGORIES = ["Alimentación","Transporte","Vivienda","Salud","Entretenimiento","Ropa","Educación","Servicios","Restaurantes","Otros"];
 
 function guessCategory(text) {
   const t = text.toLowerCase();
-  if (/super|mercado|carrefour|coto|jumbo|dia|verdura/.test(t)) return "Alimentación";
-  if (/sube|colectivo|tren|taxi|uber|remis|nafta|combustible/.test(t)) return "Transporte";
-  if (/alquiler|expensas|luz|edesur|gas|metrogas|agua|internet/.test(t)) return "Vivienda";
-  if (/farmacia|médico|medico|obra social|dentista|hospital/.test(t)) return "Salud";
-  if (/netflix|spotify|cine|teatro|disney|stream/.test(t)) return "Entretenimiento";
-  if (/ropa|zapatillas|calzado|indumentaria/.test(t)) return "Ropa";
-  if (/curso|libro|universidad|colegio|escuela/.test(t)) return "Educación";
-  if (/resto|restaurant|bar|café|cafe|pizza|sushi/.test(t)) return "Restaurantes";
+  if (/super|mercado|carrefour|coto|jumbo|dia|verdura/.test(t))           return "Alimentación";
+  if (/sube|colectivo|tren|taxi|uber|remis|nafta|combustible/.test(t))    return "Transporte";
+  if (/alquiler|expensas|luz|edesur|gas|metrogas|agua|internet/.test(t))  return "Vivienda";
+  if (/farmacia|médico|medico|obra social|dentista|hospital/.test(t))     return "Salud";
+  if (/netflix|spotify|cine|teatro|disney|stream/.test(t))                return "Entretenimiento";
+  if (/ropa|zapatillas|calzado|indumentaria/.test(t))                     return "Ropa";
+  if (/curso|libro|universidad|colegio|escuela/.test(t))                  return "Educación";
+  if (/resto|restaurant|bar|café|cafe|pizza|sushi/.test(t))               return "Restaurantes";
   return null;
 }
 
 function parseExpense(text) {
-  const TYPES = ["fijo", "variable", "extraordinario"];
-  const parts = text.trim().toLowerCase().replace(/^gasto\s+/, "").split(/\s+/);
+  const TYPES  = ["fijo", "variable", "extraordinario"];
+  const parts  = text.trim().toLowerCase().replace(/^gasto\s+/, "").split(/\s+/);
   const amount = parseFloat(parts[0].replace(",", ".").replace(/[^0-9.]/g, ""));
   if (!amount || isNaN(amount)) return null;
   let typeFound = "Variable", catFound = null, dateFound = null;
@@ -330,21 +346,21 @@ function parseExpense(text) {
   for (let i = 1; i < parts.length; i++) {
     const w = parts[i], wCap = w.charAt(0).toUpperCase() + w.slice(1);
     if (/^\d{1,2}\/\d{1,2}(\/\d{2,4})?$/.test(w)) {
-      const [d, m, y] = w.split("/");
-      const yr = y ? (y.length === 2 ? "20" + y : y) : new Date().getFullYear();
-      dateFound = `${yr}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      const [d,m,y] = w.split("/");
+      const yr = y ? (y.length===2?"20"+y:y) : new Date().getFullYear();
+      dateFound = `${yr}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
     } else if (/^\d{4}-\d{2}-\d{2}$/.test(w)) {
       dateFound = w;
     } else if (TYPES.includes(w)) {
       typeFound = wCap;
-    } else if (CATEGORIES.map(c => c.toLowerCase()).includes(w)) {
-      catFound = CATEGORIES.find(c => c.toLowerCase() === w);
+    } else if (CATEGORIES.map(c=>c.toLowerCase()).includes(w)) {
+      catFound = CATEGORIES.find(c=>c.toLowerCase()===w);
     } else {
       descParts.push(wCap);
     }
   }
   const desc = descParts.join(" ") || "Gasto";
-  return { id: Date.now(), desc, amt: amount, cat: catFound || guessCategory(desc) || "Otros", type: typeFound, date: dateFound || new Date().toISOString().split("T")[0] };
+  return { id: Date.now(), desc, amt: amount, cat: catFound||guessCategory(desc)||"Otros", type: typeFound, date: dateFound||new Date().toISOString().split("T")[0] };
 }
 
 // ── Telegram API ──────────────────────────────────────────────────────────────
@@ -368,11 +384,11 @@ async function cmdResumenPrivado(chatId, userId) {
     [String(userId), currentSqlMonth()]
   );
   if (!rows.length) return sendMessage(chatId, "📭 Sin gastos personales este mes.");
-  const total = rows.reduce((s, r) => s + r.total, 0);
-  const count = rows.reduce((s, r) => s + parseInt(r.cnt), 0);
+  const total = rows.reduce((s,r)=>s+r.total,0);
+  const count = rows.reduce((s,r)=>s+parseInt(r.cnt),0);
   sendMessage(chatId,
     `📊 *Mis gastos — ${MONTHS[now.getMonth()]} ${now.getFullYear()}*\n\n` +
-    rows.map(r => `  • ${r.cat}: *${fmt(r.total)}*`).join("\n") +
+    rows.map(r=>`  • ${r.cat}: *${fmt(r.total)}*`).join("\n") +
     `\n\n💰 *Total: ${fmt(total)}*\n_(${count} registros)_`
   );
 }
@@ -382,7 +398,7 @@ async function cmdListaPrivado(chatId, userId) {
   if (!rows.length) return sendMessage(chatId, "📭 Sin gastos personales este mes.");
   sendMessage(chatId,
     `📋 *Mis últimos gastos:*\n\n` +
-    rows.map(e => `• \`${e.id}\` ${e.desc} — *${fmt(e.amt)}* _(${e.cat} · ${e.date})_`).join("\n") +
+    rows.map(e=>`• \`${e.id}\` ${e.desc} — *${fmt(e.amt)}* _(${e.cat} · ${e.date})_`).join("\n") +
     `\n\n_Usá /editar para modificar uno_`
   );
 }
@@ -390,7 +406,7 @@ async function cmdListaPrivado(chatId, userId) {
 // ── Comandos grupales ─────────────────────────────────────────────────────────
 
 async function cmdResumenGrupal(chatId, groupId, groupName) {
-  const now = new Date();
+  const now  = new Date();
   const rows = await resumeByPerson(groupId);
   if (!rows.length) return sendMessage(chatId, "📭 Sin gastos grupales este mes.");
 
@@ -401,10 +417,10 @@ async function cmdResumenGrupal(chatId, groupId, groupName) {
     byPerson[r.user_name].cats.push(`    · ${r.cat}: ${fmt(r.total)}`);
   });
 
-  const totalGrupal = Object.values(byPerson).reduce((s, p) => s + p.total, 0);
+  const totalGrupal = Object.values(byPerson).reduce((s,p)=>s+p.total,0);
   const lines = Object.entries(byPerson)
-    .sort((a, b) => b[1].total - a[1].total)
-    .map(([name, p]) => `👤 *${name}*: ${fmt(p.total)}\n${p.cats.join("\n")}`)
+    .sort((a,b)=>b[1].total-a[1].total)
+    .map(([name,p])=>`👤 *${name}*: ${fmt(p.total)}\n${p.cats.join("\n")}`)
     .join("\n\n");
 
   sendMessage(chatId,
@@ -418,14 +434,14 @@ async function cmdListaGrupal(chatId, groupId) {
   if (!rows.length) return sendMessage(chatId, "📭 Sin gastos grupales este mes.");
   sendMessage(chatId,
     `📋 *Últimos gastos del grupo:*\n\n` +
-    rows.map(e => `• \`${e.id}\` [${e.user_name}] ${e.desc} — *${fmt(e.amt)}* _(${e.cat})_`).join("\n")
+    rows.map(e=>`• \`${e.id}\` [${e.user_name}] ${e.desc} — *${fmt(e.amt)}* _(${e.cat})_`).join("\n")
   );
 }
 
 // ── Comando /editar (solo en privado) ─────────────────────────────────────────
 
 async function cmdEditar(chatId, userId, text) {
-  const parts = text.replace(/^\/editar\s*/i, "").trim().split(/\s+/);
+  const parts = text.replace(/^\/editar\s*/i,"").trim().split(/\s+/);
   if (parts.length < 3 || !parts[0]) {
     return sendMessage(chatId,
       `✏️ *Cómo editar un gasto:*\n\n\`/editar [id] [campo] [valor]\`\n\n` +
@@ -441,39 +457,39 @@ async function cmdEditar(chatId, userId, text) {
   const fields = {};
   switch (field) {
     case "monto": case "amt": {
-      const n = parseFloat(value.replace(",", "."));
-      if (!n || isNaN(n)) return sendMessage(chatId, "❌ Monto inválido.");
-      fields.amt = n; break;
+      const n = parseFloat(value.replace(",","."));
+      if (!n||isNaN(n)) return sendMessage(chatId,"❌ Monto inválido.");
+      fields.amt=n; break;
     }
     case "desc": case "descripcion": case "descripción": {
-      if (!value) return sendMessage(chatId, "❌ Escribí la nueva descripción.");
-      fields.desc = value.charAt(0).toUpperCase() + value.slice(1); break;
+      if (!value) return sendMessage(chatId,"❌ Escribí la nueva descripción.");
+      fields.desc=value.charAt(0).toUpperCase()+value.slice(1); break;
     }
     case "categoria": case "categoría": case "cat": {
-      const cat = CATEGORIES.find(c => c.toLowerCase() === value.toLowerCase());
-      if (!cat) return sendMessage(chatId, `❌ Categoría inválida.\nOpciones: ${CATEGORIES.join(", ")}`);
-      fields.cat = cat; break;
+      const cat=CATEGORIES.find(c=>c.toLowerCase()===value.toLowerCase());
+      if (!cat) return sendMessage(chatId,`❌ Categoría inválida.\nOpciones: ${CATEGORIES.join(", ")}`);
+      fields.cat=cat; break;
     }
     case "tipo": case "type": {
-      const t = { fijo: "Fijo", variable: "Variable", extraordinario: "Extraordinario" }[value.toLowerCase()];
-      if (!t) return sendMessage(chatId, "❌ Tipo inválido. Opciones: fijo, variable, extraordinario");
-      fields.type = t; break;
+      const t={fijo:"Fijo",variable:"Variable",extraordinario:"Extraordinario"}[value.toLowerCase()];
+      if (!t) return sendMessage(chatId,"❌ Tipo inválido. Opciones: fijo, variable, extraordinario");
+      fields.type=t; break;
     }
     case "fecha": case "date": {
-      let df = null;
-      if (/^\d{1,2}\/\d{1,2}(\/\d{2,4})?$/.test(value)) {
-        const [d, m, y] = value.split("/");
-        const yr = y ? (y.length === 2 ? "20" + y : y) : new Date().getFullYear();
-        df = `${yr}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-      } else if (/^\d{4}-\d{2}-\d{2}$/.test(value)) df = value;
-      if (!df) return sendMessage(chatId, "❌ Fecha inválida. Usá DD/MM o DD/MM/YYYY.");
-      fields.date = df; break;
+      let df=null;
+      if (/^\d{1,2}\/\d{1,2}(\/\d{2,4})?$/.test(value)){
+        const[d,m,y]=value.split("/");
+        const yr=y?(y.length===2?"20"+y:y):new Date().getFullYear();
+        df=`${yr}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+      } else if(/^\d{4}-\d{2}-\d{2}$/.test(value)) df=value;
+      if (!df) return sendMessage(chatId,"❌ Fecha inválida. Usá DD/MM o DD/MM/YYYY.");
+      fields.date=df; break;
     }
-    default: return sendMessage(chatId, "❌ Campo inválido. Opciones: desc, monto, categoria, tipo, fecha");
+    default: return sendMessage(chatId,"❌ Campo inválido. Opciones: desc, monto, categoria, tipo, fecha");
   }
   const ok = await updateExpense(userId, id, fields);
-  if (!ok) return sendMessage(chatId, "❌ No encontré ese gasto o no te pertenece.");
-  sendMessage(chatId, `✅ *Gasto actualizado.*\n_Usá /lista para verificar._`);
+  if (!ok) return sendMessage(chatId,"❌ No encontré ese gasto o no te pertenece.");
+  sendMessage(chatId,`✅ *Gasto actualizado.*\n_Usá /lista para verificar._`);
 }
 
 // ── Comando /ayuda ────────────────────────────────────────────────────────────
@@ -488,7 +504,7 @@ async function cmdAyuda(chatId, userId, isGroup) {
     `*Ejemplos:*\n\`gasto 2800 supermercado\`\n\`gasto 15000 alquiler vivienda fijo\`\n\`gasto 500 cafe 20/04\`\n\n` +
     `*Categorías:* ${CATEGORIES.join(", ")}\n*Tipos:* fijo · variable · extraordinario\n\n` +
     `*Comandos:* /resumen · /lista · /editar · /ayuda\n\n` +
-    `🔑 *Tu ID:* \`${userId}\`\n🌐 *App:* ${WEBHOOK_URL || "sin configurar"}`
+    `🔑 *Tu ID:* \`${userId}\`\n🌐 *App:* ${WEBHOOK_URL||"sin configurar"}`
   );
 }
 
@@ -499,22 +515,22 @@ app.post("/webhook", async (req, res) => {
   const update = req.body;
   if (!update.message) return;
 
-  const msg = update.message;
-  const chatId = msg.chat.id;
-  const userId = String(msg.from.id);
-  const text = (msg.text || "").trim();
+  const msg      = update.message;
+  const chatId   = msg.chat.id;
+  const userId   = String(msg.from.id);
+  const text     = (msg.text || "").trim();
   const userName = [msg.from.first_name, msg.from.last_name].filter(Boolean).join(" ") || `User${userId}`;
-  const isGroup = ["group", "supergroup"].includes(msg.chat.type);
-  const groupId = isGroup ? String(msg.chat.id) : null;
-  const groupName = isGroup ? (msg.chat.title || "Grupo") : null;
-  const scope = isGroup ? "group" : "private";
+  const isGroup  = ["group","supergroup"].includes(msg.chat.type);
+  const groupId  = isGroup ? String(msg.chat.id) : null;
+  const groupName = isGroup ? (msg.chat.title||"Grupo") : null;
+  const scope    = isGroup ? "group" : "private";
 
   if (ALLOWED_IDS.length > 0 && !ALLOWED_IDS.includes(userId))
     return sendMessage(chatId, "⛔ No estás autorizado.");
 
   if (text.startsWith("/resumen")) return isGroup ? cmdResumenGrupal(chatId, groupId, groupName) : cmdResumenPrivado(chatId, userId);
-  if (text.startsWith("/lista")) return isGroup ? cmdListaGrupal(chatId, groupId) : cmdListaPrivado(chatId, userId);
-  if (text.startsWith("/editar")) return isGroup
+  if (text.startsWith("/lista"))   return isGroup ? cmdListaGrupal(chatId, groupId) : cmdListaPrivado(chatId, userId);
+  if (text.startsWith("/editar"))  return isGroup
     ? sendMessage(chatId, "✏️ El comando /editar solo está disponible en chat privado con el bot.")
     : cmdEditar(chatId, userId, text);
   if (text.startsWith("/start") || text.startsWith("/ayuda")) return cmdAyuda(chatId, userId, isGroup);
@@ -527,13 +543,166 @@ app.post("/webhook", async (req, res) => {
     appendToSheet(scope, groupId, userName, expense).catch(console.error);
 
     const total = isGroup ? await monthTotalGroup(groupId) : await monthTotalPrivate(userId);
-    const icon = isGroup ? "👥" : "👤";
+    const icon  = isGroup ? "👥" : "👤";
     return sendMessage(chatId,
-      `✅ *Guardado* ${icon}${SHEET_ID ? " 📊" : ""}\n\n` +
+      `✅ *Guardado* ${icon}${SHEET_ID?" 📊":""}\n\n` +
       `📝 ${expense.desc}\n💵 *${fmt(expense.amt)}*\n🏷️ ${expense.cat} · ${expense.type}\n📅 ${expense.date}\n\n` +
-      `_Total ${isGroup ? "del grupo" : "personal"} este mes: ${fmt(total)}_`
+      `_Total ${isGroup?"del grupo":"personal"} este mes: ${fmt(total)}_`
     );
   }
+});
+
+// ── Autenticación admin ───────────────────────────────────────────────────────
+
+const SESSION_HOURS = 8; // duración de la sesión admin
+
+// Genera un token JWT firmado y lo persiste en la DB
+async function createAdminSession(telegramId) {
+  const token = jwt.sign(
+    { telegramId, role: "admin" },
+    JWT_SECRET,
+    { expiresIn: `${SESSION_HOURS}h` }
+  );
+  const expiresAt = new Date(Date.now() + SESSION_HOURS * 3600 * 1000);
+  await pool.query(
+    `INSERT INTO admin_sessions (token, telegram_id, expires_at)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (token) DO NOTHING`,
+    [token, telegramId, expiresAt]
+  );
+  return token;
+}
+
+// Verifica el token JWT y su presencia en la DB (permite invalidación remota)
+async function verifyAdminToken(token) {
+  if (!token) return null;
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    const { rows } = await pool.query(
+      `SELECT telegram_id FROM admin_sessions
+       WHERE token = $1 AND expires_at > NOW()`,
+      [token]
+    );
+    if (!rows.length) return null;
+    return payload;
+  } catch { return null; }
+}
+
+// Middleware que protege endpoints de admin
+async function requireAdmin(req, res, next) {
+  const token = (req.headers.authorization || "").replace("Bearer ", "");
+  const payload = await verifyAdminToken(token);
+  if (!payload) return res.status(401).json({ error: "Sesión admin requerida" });
+  req.adminPayload = payload;
+  next();
+}
+
+// Limpiar sesiones expiradas (se llama al arrancar y cada hora)
+async function cleanExpiredSessions() {
+  await pool.query("DELETE FROM admin_sessions WHERE expires_at < NOW()");
+}
+
+// ── Endpoints de autenticación ────────────────────────────────────────────────
+
+// POST /api/admin/login — autentica al admin y devuelve un token JWT
+app.post("/api/admin/login", async (req, res) => {
+  const { telegramId, password } = req.body;
+  if (!telegramId || !password)
+    return res.status(400).json({ error: "telegramId y password requeridos" });
+
+  if (!ADMIN_TELEGRAM_ID || !ADMIN_PWD_HASH)
+    return res.status(503).json({ error: "Admin no configurado en el servidor" });
+
+  if (String(telegramId) !== String(ADMIN_TELEGRAM_ID))
+    return res.status(401).json({ error: "Credenciales incorrectas" });
+
+  const valid = await bcrypt.compare(password, ADMIN_PWD_HASH);
+  if (!valid)
+    return res.status(401).json({ error: "Credenciales incorrectas" });
+
+  const token = await createAdminSession(telegramId);
+  res.json({ ok: true, token, expiresIn: SESSION_HOURS * 3600 });
+});
+
+// POST /api/admin/logout — invalida el token actual
+app.post("/api/admin/logout", requireAdmin, async (req, res) => {
+  const token = (req.headers.authorization || "").replace("Bearer ", "");
+  await pool.query("DELETE FROM admin_sessions WHERE token = $1", [token]);
+  res.json({ ok: true });
+});
+
+// GET /api/admin/me — verifica la sesión activa
+app.get("/api/admin/me", requireAdmin, (req, res) => {
+  res.json({ ok: true, telegramId: req.adminPayload.telegramId });
+});
+
+// ── Endpoints exclusivos del admin ────────────────────────────────────────────
+
+// GET /api/admin/users — lista todos los usuarios registrados en app_config
+app.get("/api/admin/users", requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT telegram_id, config->'users' AS users,
+              config->'groups' AS groups, updated_at
+       FROM app_config ORDER BY updated_at DESC`
+    );
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/admin/gastos/:telegramId — ver gastos de cualquier usuario
+app.get("/api/admin/gastos/:telegramId", requireAdmin, async (req, res) => {
+  const safeId = String(req.params.telegramId).replace(/[^0-9]/g, "");
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, description AS desc, amount::float AS amt,
+              category AS cat, type, date::text, scope, group_id, created_at
+       FROM expenses WHERE user_id = $1
+       ORDER BY date DESC, created_at DESC`,
+      [safeId]
+    );
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/admin/stats — métricas globales
+app.get("/api/admin/stats", requireAdmin, async (req, res) => {
+  try {
+    const [users, expenses, groups] = await Promise.all([
+      pool.query("SELECT COUNT(DISTINCT user_id) AS total FROM expenses"),
+      pool.query("SELECT COUNT(*) AS total, SUM(amount)::float AS sum FROM expenses"),
+      pool.query("SELECT COUNT(DISTINCT group_id) AS total FROM expenses WHERE scope='group'"),
+    ]);
+    res.json({
+      users:    parseInt(users.rows[0].total),
+      expenses: parseInt(expenses.rows[0].total),
+      total:    expenses.rows[0].sum || 0,
+      groups:   parseInt(groups.rows[0].total),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/admin/config — el admin puede actualizar la config global (API_SECRET, etc.)
+// Esta config se guarda en una clave especial reservada para el admin
+app.post("/api/admin/config", requireAdmin, async (req, res) => {
+  try {
+    await pool.query(
+      `INSERT INTO app_config (telegram_id, config, updated_at)
+       VALUES ('__admin__', $1, NOW())
+       ON CONFLICT (telegram_id) DO UPDATE SET config = $1, updated_at = NOW()`,
+      [JSON.stringify(req.body)]
+    );
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get("/api/admin/config", requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT config FROM app_config WHERE telegram_id = '__admin__'"
+    );
+    res.json(rows.length ? rows[0].config : {});
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── API para app web ──────────────────────────────────────────────────────────
@@ -546,8 +715,8 @@ app.get("/api/info", (req, res) => {
 // Configuración por usuario de Telegram
 app.get("/api/config", async (req, res) => {
   const { telegramId, secret } = req.query;
-  if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
-  if (!telegramId) return res.status(400).json({ error: "telegramId requerido" });
+  if (secret !== API_SECRET)  return res.status(401).json({ error: "No autorizado" });
+  if (!telegramId)            return res.status(400).json({ error: "telegramId requerido" });
   const safeId = String(telegramId).replace(/[^0-9]/g, "");
   try {
     const { rows } = await pool.query(
@@ -560,8 +729,8 @@ app.get("/api/config", async (req, res) => {
 
 app.post("/api/config", async (req, res) => {
   const { telegramId, secret } = req.query;
-  if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
-  if (!telegramId) return res.status(400).json({ error: "telegramId requerido" });
+  if (secret !== API_SECRET)  return res.status(401).json({ error: "No autorizado" });
+  if (!telegramId)            return res.status(400).json({ error: "telegramId requerido" });
   const safeId = String(telegramId).replace(/[^0-9]/g, "");
   try {
     await pool.query(
@@ -579,7 +748,7 @@ app.post("/api/config", async (req, res) => {
 app.get("/api/gastos", async (req, res) => {
   const { userId, secret } = req.query;
   if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
-  if (!userId) return res.status(400).json({ error: "userId requerido" });
+  if (!userId)               return res.status(400).json({ error: "userId requerido" });
   const safeId = String(userId).replace(/[^0-9]/g, "");
   if (ALLOWED_IDS.length > 0 && !ALLOWED_IDS.includes(safeId))
     return res.status(403).json({ error: "Usuario no autorizado" });
@@ -609,9 +778,9 @@ app.get("/api/gastos/grupo/:groupId/resumen", async (req, res) => {
 app.put("/api/gastos/:id", async (req, res) => {
   const { secret, userId } = req.query;
   if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
-  if (!userId) return res.status(400).json({ error: "userId requerido" });
+  if (!userId)               return res.status(400).json({ error: "userId requerido" });
   const safeId = String(userId).replace(/[^0-9]/g, "");
-  const id = parseInt(req.params.id);
+  const id     = parseInt(req.params.id);
   if (isNaN(id)) return res.status(400).json({ error: "ID inválido" });
   try {
     const ok = await updateExpense(safeId, id, req.body);
@@ -624,9 +793,9 @@ app.put("/api/gastos/:id", async (req, res) => {
 app.delete("/api/gastos/:id", async (req, res) => {
   const { secret, userId } = req.query;
   if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
-  if (!userId) return res.status(400).json({ error: "userId requerido" });
+  if (!userId)               return res.status(400).json({ error: "userId requerido" });
   const safeId = String(userId).replace(/[^0-9]/g, "");
-  const id = parseInt(req.params.id);
+  const id     = parseInt(req.params.id);
   if (isNaN(id)) return res.status(400).json({ error: "ID inválido" });
   try {
     const { rowCount } = await pool.query(
@@ -640,7 +809,7 @@ app.delete("/api/gastos/:id", async (req, res) => {
 app.get("/api/health", async (req, res) => {
   try {
     await pool.query("SELECT 1");
-    res.json({ ok: true, db: "postgres", sheets: !!SHEET_ID && !!GOOGLE_CREDS, webhook: !!BOT_TOKEN, ts: new Date().toISOString() });
+    res.json({ ok: true, db: "postgres", sheets: !!SHEET_ID&&!!GOOGLE_CREDS, webhook: !!BOT_TOKEN, ts: new Date().toISOString() });
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
@@ -649,7 +818,7 @@ app.get("/api/health", async (req, res) => {
 async function registerWebhook() {
   if (!BOT_TOKEN || !WEBHOOK_URL) return;
   const { default: fetch } = await import("node-fetch");
-  const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/setWebhook`, {
+  const res  = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/setWebhook`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url: `${WEBHOOK_URL}/webhook` }),
   });
@@ -663,6 +832,8 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
   console.log(`🤖 Bot corriendo en puerto ${PORT}`);
   await initDB();
+  await cleanExpiredSessions();
+  setInterval(cleanExpiredSessions, 60 * 60 * 1000); // cada hora
   if (SHEET_ID && GOOGLE_CREDS) {
     console.log("📊 Google Sheets: configurado");
     await getSheetsClient().catch(console.error);
