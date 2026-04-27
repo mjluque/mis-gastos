@@ -26,7 +26,25 @@ const { google } = require("googleapis");
 
 const app = express();
 app.use(express.json());
-app.use(express.static(path.join(__dirname, "public")));
+
+// Servir index.html con SERVER_URL inyectada como variable global de JS.
+// Los demás assets (css, js) se sirven estáticos normalmente.
+const PUBLIC_DIR  = path.join(__dirname, "public");
+const fs          = require("fs");
+
+app.get("/", (req, res) => {
+  const html = fs.readFileSync(path.join(PUBLIC_DIR, "index.html"), "utf8");
+  const serverUrl = WEBHOOK_URL || "";
+  // Inyectar antes del cierre de </head>
+  const injected  = html.replace(
+    "</head>",
+    `<script>window.__SERVER_URL__ = ${JSON.stringify(serverUrl)};</script>\n</head>`
+  );
+  res.setHeader("Content-Type", "text/html");
+  res.send(injected);
+});
+
+app.use(express.static(PUBLIC_DIR));
 
 const BOT_TOKEN          = process.env.BOT_TOKEN;
 const WEBHOOK_URL        = process.env.WEBHOOK_URL;
@@ -706,9 +724,20 @@ app.get("/api/admin/config", requireAdmin, async (req, res) => {
 
 // ── API para app web ──────────────────────────────────────────────────────────
 
-// Info pública del servidor (sin autenticación — solo expone la URL configurada)
+// Info pública del servidor.
+// Si el telegramId está en ALLOWED_IDS, devuelve también el secret
+// para que la app lo configure automáticamente sin que el usuario lo vea.
 app.get("/api/info", (req, res) => {
-  res.json({ serverUrl: WEBHOOK_URL || null });
+  const { telegramId } = req.query;
+  const safeId = telegramId ? String(telegramId).replace(/[^0-9]/g, "") : null;
+  const authorized = safeId && (
+    ALLOWED_IDS.length === 0 || ALLOWED_IDS.includes(safeId)
+  );
+  res.json({
+    serverUrl: WEBHOOK_URL || null,
+    secret:    authorized ? API_SECRET : null,
+    authorized,
+  });
 });
 
 // Configuración por usuario de Telegram

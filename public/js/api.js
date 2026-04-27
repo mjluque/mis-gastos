@@ -99,13 +99,25 @@ export async function deleteExpenseRemote(expenseId) {
   } catch (e) { console.warn("Error eliminando en servidor:", e.message); }
 }
 
-// ── Info pública del servidor (no requiere secret) ────────────────────────────
+// ── Info pública del servidor ─────────────────────────────────────────────────
 
 export async function fetchServerInfo(serverUrl) {
   try {
     const res = await fetch(`${serverUrl}/api/info`);
     if (!res.ok) return null;
-    return await res.json(); // { serverUrl }
+    return await res.json();
+  } catch { return null; }
+}
+
+// Obtiene el secret para un telegramId autorizado.
+// El servidor solo lo devuelve si el ID está en ALLOWED_IDS.
+export async function fetchSecretForUser(serverUrl, telegramId) {
+  if (!serverUrl || !telegramId) return null;
+  try {
+    const res = await fetch(`${serverUrl}/api/info?telegramId=${telegramId}`);
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json.authorized ? json.secret : null;
   } catch { return null; }
 }
 
@@ -147,9 +159,9 @@ export async function checkServerHealth() {
 // ── Guardar configuración del servidor ────────────────────────────────────────
 
 export function saveServerConfig() {
-  serverCfg.url      = document.getElementById("server-url").value.trim();
-  serverCfg.secret   = document.getElementById("server-secret").value.trim();
-  serverCfg.autoSync = document.getElementById("auto-sync").checked;
+  // La URL viene inyectada por el servidor — no se edita manualmente.
+  // Solo guardamos la preferencia de auto-sync.
+  serverCfg.autoSync = document.getElementById("auto-sync")?.checked ?? serverCfg.autoSync;
   saveServerCfg();
   toast("✓ Configuración guardada");
   checkServerHealth();

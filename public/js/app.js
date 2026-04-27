@@ -2,7 +2,7 @@
 // Punto de entrada. Orquesta el resto de módulos.
 
 import { initStorage, users, groups, activeId, serverCfg,
-         setActiveId, saveUsers, saveActive, saveGroups,
+         setActiveId, saveUsers, saveActive, saveGroups, saveServerCfg,
          curData, curExpenses, saveUserData, activeUser,
          loadUserData, getConfigKey, serializeConfig, applyConfig } from "./storage.js";
 import { updateHeader, setSyncStatus, toast } from "./ui.js";
@@ -10,7 +10,7 @@ import { renderResumen, renderList, renderCompare, renderConfig,
          selectedMonths, setSelectedMonths } from "./renders.js";
 import { syncNow, syncUserManual, deleteExpenseRemote, saveServerConfig,
          checkServerHealth, fetchRemoteConfig, pushRemoteConfig,
-         fetchServerInfo } from "./api.js";
+         fetchServerInfo, fetchSecretForUser } from "./api.js";
 import { openEditFromBtn, closeEditModal, saveEdit } from "./modals.js";
 import { curKey, getKey, CATEGORIES } from "./config.js";
 import { adminLogin, adminLogout, checkAdminSession, isAdminLoggedIn,
@@ -110,20 +110,37 @@ export function setActiveUser(uid) {
   if (serverCfg.autoSync) syncNow(true);
 }
 
-export function addUser() {
+export async function addUser() {
   const name = document.getElementById("new-username").value.trim();
   const tid  = document.getElementById("new-userid").value.trim();
   if (!name) { toast("Escribí un nombre", false); return; }
+
   users.push({ id: "u" + Date.now(), name, telegramId: tid || null });
   saveUsers();
   if (!activeId) { setActiveId(users[users.length - 1].id); saveActive(); }
   document.getElementById("new-username").value = "";
   document.getElementById("new-userid").value   = "";
+
+  // Si hay Telegram ID y URL configurada, obtener el secret automáticamente
+  if (tid && serverCfg.url) {
+    const secret = await fetchSecretForUser(serverCfg.url, tid);
+    if (secret && secret !== serverCfg.secret) {
+      serverCfg.secret = secret;
+      saveServerCfg();
+      toast("✓ Usuario agregado · Servidor conectado automáticamente");
+    } else if (!secret) {
+      toast("✓ Usuario agregado · ID no autorizado en el servidor", false);
+    } else {
+      toast("✓ Usuario agregado");
+    }
+  } else {
+    toast("✓ Usuario agregado");
+  }
+
   renderConfig();
   updateHeader();
   updateViewSelector();
   pushConfig();
-  toast("✓ Usuario agregado");
 }
 
 export function deleteUser(uid) {
@@ -224,24 +241,6 @@ export function toggleMonth(k) {
 // en window explícitamente solo para los handlers inline del DOM.
 
 // Verificar URL del servidor antes de guardar
-async function verifyServerUrl() {
-  const url = document.getElementById("server-url").value.trim();
-  const statusEl = document.getElementById("server-url-status");
-  if (!url) { statusEl.textContent = "Ingresá una URL"; return; }
-  statusEl.textContent = "Verificando...";
-  try {
-    const res = await fetch(`${url}/api/health`);
-    const json = await res.json();
-    if (json.ok) {
-      statusEl.innerHTML = '<span style="color:#1D9E75">✓ Servidor conectado · DB: ' + json.db + (json.sheets ? " · Sheets activo" : "") + "</span>";
-    } else {
-      statusEl.innerHTML = '<span style="color:#D85A30">⚠ Servidor respondió con error</span>';
-    }
-  } catch {
-    statusEl.innerHTML = '<span style="color:#D85A30">✗ No se pudo conectar</span>';
-  }
-}
-
 window.__refresh           = refresh;
 window.__switchTab         = switchTab;
 window.__switchView        = switchView;
@@ -261,7 +260,6 @@ window.__saveEdit          = saveEdit;
 window.__renderList        = renderList;
 window.__saveServerConfig  = () => { saveServerConfig(); pushConfig(); };
 window.__syncUserManual    = syncUserManual;
-window.__verifyServerUrl   = verifyServerUrl;
 
 // ── Admin ──────────────────────────────────────────────────────────────────────
 window.__adminLoginFromUI = async () => {
@@ -327,19 +325,30 @@ async function init() {
 
   // ── Paso 2: cargar config remota usando el telegramId del usuario activo ──
   const configKey = getConfigKey();
-  if (configKey && serverCfg.secret) {
+  if (configKey && serverCfg.url) {
     setSyncStatus("syncing", "Cargando configuración...");
-    const remote = await fetchRemoteConfig(configKey);
-    if (remote) {
-      applyConfig(remote);
-      updateHeader();
-      updateViewSelector();
-      setSyncStatus("ok", "Configuración cargada");
-    } else {
-      setSyncStatus("idle", "Sin configuración remota aún");
+    // Obtener secret si no lo tenemos aún
+    if (!serverCfg.secret) {
+      const secret = await fetchSecretForUser(serverCfg.url, configKey);
+      if (secret) { serverCfg.secret = secret; saveServerCfg(); }
     }
+    if (serverCfg.secret) {
+      const remote = await fetchRemoteConfig(configKey);
+      if (remote) {
+        applyConfig(remote);
+        updateHeader();
+        updateViewSelector();
+        setSyncStatus("ok", "Configuración cargada");
+      } else {
+        setSyncStatus("idle", "Sin configuración remota aún");
+      }
+    } else {
+      setSyncStatus("err", "Telegram ID no autorizado en el servidor");
+    }
+  } else if (!serverCfg.url) {
+    setSyncStatus("err", "Sin servidor — contactá al administrador");
   } else {
-    setSyncStatus("idle", serverCfg.secret ? "Agregá tu ID de Telegram en Config" : "Completá la configuración en ⚙ Config");
+    setSyncStatus("idle", "Agregá tu Telegram ID en ⚙ Config");
   }
 
   renderResumen(currentView, activeGroupId);

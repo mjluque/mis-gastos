@@ -248,12 +248,18 @@ export function renderConfig() {
   document.getElementById("active-user-picker").innerHTML = users.map((u) => `
     <button class="pill ${activeId === u.id ? "active" : ""}" onclick="window.__setActiveUser('${u.id}')">${u.name}</button>`).join("");
 
-  const urlEl    = document.getElementById("server-url");
-  const secretEl = document.getElementById("server-secret");
-  const syncEl   = document.getElementById("auto-sync");
-  if (serverCfg.url)    urlEl.value    = serverCfg.url;
-  if (serverCfg.secret) secretEl.value = serverCfg.secret;
-  syncEl.checked = !!serverCfg.autoSync;
+  const syncEl = document.getElementById("auto-sync");
+  if (syncEl) syncEl.checked = !!serverCfg.autoSync;
+
+  // Mostrar estado de conexión al servidor
+  const statusEl = document.getElementById("server-url-status");
+  if (statusEl) {
+    if (serverCfg.url) {
+      statusEl.innerHTML = `<span style="color:#1D9E75">● Conectado a ${serverCfg.url}</span>`;
+    } else {
+      statusEl.innerHTML = `<span style="color:#D85A30">● Sin servidor configurado</span>`;
+    }
+  }
 
   document.getElementById("group-list").innerHTML = groups.length
     ? groups.map((g) => `
