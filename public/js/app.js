@@ -16,7 +16,7 @@ import { curKey, getKey, CATEGORIES } from "./config.js";
 import { adminLogin, adminLogout, checkAdminSession, isAdminLoggedIn,
          renderAdminPanel, renderUserExpensesModal,
          fetchAdminConfig, saveAdminConfig } from "./admin.js";
-import { connectGoogle, disconnectGoogle, syncToSheet, renderSheetsCard } from "./sheets.js";
+import { connectGoogle, disconnectGoogle, syncToSheet, loadAllSheetsStatus } from "./sheets.js";
 
 // ── Estado de navegación ──────────────────────────────────────────────────────
 
@@ -67,7 +67,7 @@ export function switchTab(name) {
   if (name === "resumen")  renderResumen(currentView, activeGroupId);
   if (name === "gastos")   renderList();
   if (name === "comparar") renderCompare();
-  if (name === "config")   { renderConfig(); checkServerHealth(); renderSheetsCard(); }
+  if (name === "config")   { renderConfig(); checkServerHealth(); loadAllSheetsStatus(); }
   if (name === "admin")    renderAdminScreen();
 }
 
@@ -108,7 +108,7 @@ export function setActiveUser(uid) {
   renderConfig();
   updateHeader();
   refresh();
-  if (serverCfg.autoSync) syncNow(true);
+  if (serverCfg.url && serverCfg.secret) syncNow(true);
 }
 
 export async function addUser() {
@@ -261,9 +261,9 @@ window.__saveEdit          = saveEdit;
 window.__renderList        = renderList;
 window.__saveServerConfig  = () => { saveServerConfig(); pushConfig(); };
 window.__syncUserManual    = syncUserManual;
-window.__connectGoogle     = connectGoogle;
-window.__disconnectGoogle  = disconnectGoogle;
-window.__syncToSheet       = syncToSheet;
+window.__connectGoogle     = (userId) => connectGoogle(userId);
+window.__disconnectGoogle  = (userId) => disconnectGoogle(userId);
+window.__syncToSheet       = (userId) => syncToSheet(userId);
 
 // ── Admin ──────────────────────────────────────────────────────────────────────
 window.__adminLoginFromUI = async () => {
@@ -368,8 +368,8 @@ async function init() {
       .catch(() => {});
   }
 
-  // ── Paso 3: auto-sync de gastos ───────────────────────────────────────────
-  if (serverCfg.autoSync && serverCfg.secret) syncNow(true);
+  // ── Paso 3: auto-sync siempre activo al abrir ────────────────────────────
+  if (serverCfg.url && serverCfg.secret) syncNow(true);
 }
 
 init();

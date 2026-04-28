@@ -227,38 +227,91 @@ export function renderCompare() {
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
+// Ícono de Google Sheets reutilizable como string SVG
+const SHEETS_ICON_GREEN = `<svg width="12" height="12" viewBox="0 0 16 16" style="flex-shrink:0"><rect width="16" height="16" rx="2" fill="#1e7e45"/><rect x="3" y="4.5" width="10" height="1.3" rx="0.4" fill="white"/><rect x="3" y="7.3" width="10" height="1.3" rx="0.4" fill="white"/><rect x="3" y="10.1" width="6.5" height="1.3" rx="0.4" fill="white"/></svg>`;
+const SHEETS_ICON_GRAY  = `<svg width="12" height="12" viewBox="0 0 16 16" style="flex-shrink:0"><rect width="16" height="16" rx="2" fill="#b4b2a9"/><rect x="3" y="4.5" width="10" height="1.3" rx="0.4" fill="white"/><rect x="3" y="7.3" width="10" height="1.3" rx="0.4" fill="white"/><rect x="3" y="10.1" width="6.5" height="1.3" rx="0.4" fill="white"/></svg>`;
+
+// Cache de estados de Sheets por userId para no re-fetchear en cada render
+export const sheetsStatusCache = {};
+
 export function renderConfig() {
   document.getElementById("user-list").innerHTML = users.length
-    ? users.map((u) => `
-        <div class="user-row">
-          <div style="display:flex;align-items:center;gap:8px">
-            <div class="avatar" style="width:28px;height:28px;font-size:12px">${u.name.charAt(0).toUpperCase()}</div>
-            <div>
-              <div style="font-size:13px;font-weight:${activeId === u.id ? 500 : 400}">${u.name}${activeId === u.id ? ' <span style="font-size:10px;color:#1D9E75">● activo</span>' : ""}</div>
-              <div style="font-size:11px;color:var(--text2)">ID: ${u.telegramId || "sin Telegram"}</div>
+    ? users.map((u) => {
+        const isActive  = activeId === u.id;
+        const cache     = sheetsStatusCache[u.id] || null;
+
+        // Bloque inline de Google Sheets según estado cacheado
+        let sheetsBlock = "";
+        if (!u.telegramId) {
+          sheetsBlock = `<div style="margin-top:5px;font-size:11px;color:var(--text3)">Agregá Telegram ID para conectar Sheets</div>`;
+        } else if (cache === null) {
+          // Aún sin datos — se cargará en background
+          sheetsBlock = `<div style="margin-top:5px;font-size:11px;color:var(--text3)">Verificando Google...</div>`;
+        } else if (!cache.connected) {
+          sheetsBlock = `
+            <div style="display:flex;align-items:center;gap:6px;margin-top:5px">
+              <span style="font-size:11px;color:var(--text3)">○ Sin Google conectado</span>
+              <button onclick="window.__connectGoogle('${u.id}')"
+                style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;font-size:10px;border-radius:6px;border:0.5px solid transparent;background:none;color:var(--text3);font-family:inherit;cursor:pointer">
+                ${SHEETS_ICON_GRAY} Conectar Sheet
+              </button>
+            </div>`;
+        } else {
+          const sheetUrl = cache.sheetId
+            ? `https://docs.google.com/spreadsheets/d/${cache.sheetId}/edit`
+            : null;
+          sheetsBlock = `
+            <div style="display:flex;align-items:center;gap:6px;margin-top:5px">
+              <span style="font-size:11px;color:#1D9E75">● Google conectado</span>
+              ${sheetUrl
+                ? `<a href="${sheetUrl}" target="_blank"
+                     style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;font-size:10px;border-radius:6px;border:0.5px solid transparent;background:none;color:#1e7e45;font-family:inherit;cursor:pointer;text-decoration:none">
+                     ${SHEETS_ICON_GREEN} Abrir Sheet ↗
+                   </a>`
+                : `<span style="font-size:10px;color:var(--text3)">Sheet se creará con el primer gasto</span>`}
+            </div>`;
+        }
+
+        return `
+          <div class="user-row">
+            <div style="display:flex;align-items:center;gap:8px">
+              <div class="avatar" style="width:28px;height:28px;font-size:12px">${u.name.charAt(0).toUpperCase()}</div>
+              <div>
+                <div style="font-size:13px;font-weight:${isActive ? 500 : 400}">
+                  ${u.name}${isActive ? ' <span style="font-size:10px;color:#1D9E75">● activo</span>' : ""}
+                </div>
+                <div style="font-size:11px;color:var(--text2)">ID: ${u.telegramId || "sin Telegram"}</div>
+                ${sheetsBlock}
+              </div>
             </div>
-          </div>
-          <div style="display:flex;gap:6px">
-            <button class="btn btn-sm" onclick="window.__syncUserManual('${u.id}')" style="color:var(--blue);border-color:var(--blue)">↓ Sync</button>
-            <button class="btn btn-sm btn-danger" onclick="window.__deleteUser('${u.id}')">×</button>
-          </div>
-        </div>`).join("")
+            <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end">
+              <div style="display:flex;gap:5px">
+                <button class="btn btn-sm" onclick="window.__syncUserManual('${u.id}')"
+                  style="font-size:10px;color:var(--blue);border-color:var(--blue)">↓ Sync</button>
+                <button class="btn btn-sm btn-danger" onclick="window.__deleteUser('${u.id}')"
+                  style="font-size:10px">×</button>
+              </div>
+              ${cache?.connected
+                ? `<button onclick="window.__disconnectGoogle('${u.id}')"
+                     style="font-size:10px;padding:2px 6px;border-radius:6px;border:0.5px solid transparent;background:none;color:var(--text3);font-family:inherit;cursor:pointer">
+                     Desconectar Google
+                   </button>`
+                : ""}
+            </div>
+          </div>`;
+      }).join("")
     : '<div class="empty" style="padding:16px">Sin usuarios. Agregá uno abajo.</div>';
 
   document.getElementById("active-user-picker").innerHTML = users.map((u) => `
-    <button class="pill ${activeId === u.id ? "active" : ""}" onclick="window.__setActiveUser('${u.id}')">${u.name}</button>`).join("");
+    <button class="pill ${activeId === u.id ? "active" : ""}"
+      onclick="window.__setActiveUser('${u.id}')">${u.name}</button>`).join("");
 
-  const syncEl = document.getElementById("auto-sync");
-  if (syncEl) syncEl.checked = !!serverCfg.autoSync;
-
-  // Mostrar estado de conexión al servidor
+  // Estado de conexión al servidor
   const statusEl = document.getElementById("server-url-status");
   if (statusEl) {
-    if (serverCfg.url) {
-      statusEl.innerHTML = `<span style="color:#1D9E75">● Conectado a ${serverCfg.url}</span>`;
-    } else {
-      statusEl.innerHTML = `<span style="color:#D85A30">● Sin servidor configurado</span>`;
-    }
+    statusEl.innerHTML = serverCfg.url
+      ? `<span style="color:#1D9E75">● Conectado a ${serverCfg.url}</span>`
+      : `<span style="color:#D85A30">● Sin servidor configurado</span>`;
   }
 
   document.getElementById("group-list").innerHTML = groups.length
@@ -268,7 +321,8 @@ export function renderConfig() {
             <div style="font-size:13px;font-weight:500">👥 ${g.name}</div>
             <div style="font-size:11px;color:var(--text2)">ID: ${g.telegramId}</div>
           </div>
-          <button class="btn btn-sm btn-danger" onclick="window.__deleteGroup('${g.id}')">×</button>
+          <button class="btn btn-sm btn-danger" onclick="window.__deleteGroup('${g.id}')"
+            style="font-size:10px">×</button>
         </div>`).join("")
     : '<div class="empty" style="padding:12px">Sin grupos. Agregá uno abajo.</div>';
 }

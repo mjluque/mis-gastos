@@ -1,7 +1,95 @@
 // ── sheets.js — Google Sheets por usuario ────────────────────────────────────
 
-import { serverCfg, activeUser } from "./storage.js";
+import { serverCfg, users } from "./storage.js";
 import { toast } from "./ui.js";
+import { sheetsStatusCache, renderConfig } from "./renders.js";
+
+// ── Estado de conexión ────────────────────────────────────────────────────────
+
+export async function fetchSheetsStatus(telegramId) {
+  if (!telegramId || !serverCfg.url || !serverCfg.secret) return null;
+  try {
+    const res = await fetch(
+      `${serverCfg.url}/api/sheets/status?telegramId=${telegramId}&secret=${encodeURIComponent(serverCfg.secret)}`
+    );
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+}
+
+// Carga el estado de Sheets para todos los usuarios y actualiza el cache
+export async function loadAllSheetsStatus() {
+  const withTg = users.filter((u) => u.telegramId);
+  await Promise.all(withTg.map(async (u) => {
+    const status = await fetchSheetsStatus(u.telegramId);
+    sheetsStatusCache[u.id] = status;
+  }));
+  renderConfig();
+}
+
+// ── Conectar Google OAuth ─────────────────────────────────────────────────────
+
+export function connectGoogle(userId) {
+  const u = users.find((x) => x.id === userId) || users.find((x) => x.id === userId);
+  const telegramId = u?.telegramId;
+  if (!telegramId) { toast("Este usuario no tiene ID de Telegram", false); return; }
+  if (!serverCfg.url) { toast("URL del servidor no configurada", false); return; }
+  const authUrl = `${serverCfg.url}/auth/google?telegramId=${telegramId}`;
+  const win = window.open(authUrl, "_blank", "width=600,height=700");
+  // Detectar cuando el usuario cierra la ventana para refrescar el estado
+  const timer = setInterval(async () => {
+    if (win?.closed) {
+      clearInterval(timer);
+      const status = await fetchSheetsStatus(telegramId);
+      if (u) sheetsStatusCache[u.id] = status;
+      renderConfig();
+      if (status?.connected) toast("✓ Google conectado correctamente");
+    }
+  }, 1000);
+}
+
+// ── Desconectar Google ────────────────────────────────────────────────────────
+
+export async function disconnectGoogle(userId) {
+  const u = users.find((x) => x.id === userId);
+  if (!u?.telegramId || !serverCfg.url || !serverCfg.secret) return;
+  if (!confirm("¿Desconectar tu cuenta de Google? Los tokens se eliminarán. El Sheet no se borrará.")) return;
+  try {
+    await fetch(
+      `${serverCfg.url}/auth/google?telegramId=${u.telegramId}&secret=${encodeURIComponent(serverCfg.secret)}`,
+      { method: "DELETE" }
+    );
+    sheetsStatusCache[u.id] = { connected: false };
+    renderConfig();
+    toast("✓ Cuenta de Google desconectada");
+  } catch { toast("Error al desconectar", false); }
+}
+
+// ── Sincronización manual ─────────────────────────────────────────────────────
+
+export async function syncToSheet(userId) {
+  const u = users.find((x) => x.id === userId);
+  if (!u?.telegramId || !serverCfg.url || !serverCfg.secret) {
+    toast("Sin configuración de servidor", false); return;
+  }
+  toast("Sincronizando Sheet...");
+  try {
+    const res = await fetch(
+      `${serverCfg.url}/api/sheets/sync?telegramId=${u.telegramId}&secret=${encodeURIComponent(serverCfg.secret)}&userName=${encodeURIComponent(u.name)}`,
+      { method: "POST" }
+    );
+    const json = await res.json();
+    if (json.ok) {
+      // Actualizar cache con el sheetId si recién se creó
+      if (json.sheetId) sheetsStatusCache[u.id] = { connected: true, sheetId: json.sheetId };
+      renderConfig();
+      toast(`✓ ${json.count} gastos sincronizados al Sheet`);
+    } else {
+      toast(json.error || "Error al sincronizar", false);
+    }
+  } catch { toast("Error de conexión", false); }
+}
+
 
 // ── Estado de conexión ────────────────────────────────────────────────────────
 
