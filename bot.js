@@ -889,6 +889,40 @@ app.get("/api/info", (req, res) => {
   });
 });
 
+// Actualizar nombre del usuario
+app.patch("/api/user", async (req, res) => {
+  const { telegramId, secret } = req.query;
+  if (secret !== API_SECRET)  return res.status(401).json({ error: "No autorizado" });
+  if (!telegramId)            return res.status(400).json({ error: "telegramId requerido" });
+  const { name } = req.body;
+  if (!name?.trim())          return res.status(400).json({ error: "Nombre requerido" });
+  const safeId = String(telegramId).replace(/[^0-9]/g, "");
+  try {
+    // Actualizar user_name en todos sus gastos
+    await pool.query(
+      "UPDATE expenses SET user_name = $1 WHERE user_id = $2",
+      [name.trim(), safeId]
+    );
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Obtener grupos a los que pertenece un usuario (tiene gastos grupales)
+app.get("/api/user/groups", async (req, res) => {
+  const { telegramId, secret } = req.query;
+  if (secret !== API_SECRET)  return res.status(401).json({ error: "No autorizado" });
+  if (!telegramId)            return res.status(400).json({ error: "telegramId requerido" });
+  const safeId = String(telegramId).replace(/[^0-9]/g, "");
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT group_id FROM expenses
+       WHERE user_id = $1 AND scope = 'group' AND group_id IS NOT NULL`,
+      [safeId]
+    );
+    res.json(rows.map(r => r.group_id));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Configuración por usuario de Telegram
 app.get("/api/config", async (req, res) => {
   const { telegramId, secret } = req.query;

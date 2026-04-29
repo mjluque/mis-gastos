@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,327 +7,255 @@
   <link rel="stylesheet" href="/css/app.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 </head>
-
 <body>
-  <div class="app">
+<div class="app">
 
-    <!-- ── Header ────────────────────────────────────────────────────────────── -->
-    <div class="header">
-      <div class="header-left">
-        <div class="avatar" id="avatar">?</div>
-        <div>
-          <div class="user-name" id="user-name">Sin usuario</div>
-          <div class="sync-status" id="sync-status">—</div>
-        </div>
-      </div>
-      <div class="header-right">
-        <select class="sel-sm" id="view-selector" onchange="window.__switchView(this.value)"
-          style="font-weight:500;max-width:130px">
-          <option value="personal">👤 Personal</option>
-        </select>
-        <button class="btn btn-icon" onclick="window.__syncNow()" title="Sincronizar">↻</button>
-        <select class="sel-sm" id="month-select">
-          <option value="0">Enero</option>
-          <option value="1">Febrero</option>
-          <option value="2">Marzo</option>
-          <option value="3">Abril</option>
-          <option value="4">Mayo</option>
-          <option value="5">Junio</option>
-          <option value="6">Julio</option>
-          <option value="7">Agosto</option>
-          <option value="8">Septiembre</option>
-          <option value="9">Octubre</option>
-          <option value="10">Noviembre</option>
-          <option value="11">Diciembre</option>
-        </select>
-        <select class="sel-sm" id="year-select">
-          <option value="2024">2024</option>
-          <option value="2025">2025</option>
-          <option value="2026">2026</option>
-        </select>
+  <!-- ── Header ────────────────────────────────────────────────────────────── -->
+  <div class="header">
+    <div class="header-left">
+      <div class="avatar" id="avatar">?</div>
+      <div>
+        <div class="user-name" id="user-name">Sin usuario</div>
+        <div class="sync-status" id="sync-status">—</div>
       </div>
     </div>
-
-    <!-- ── Tabs ──────────────────────────────────────────────────────────────── -->
-    <div class="tabs">
-      <button class="tab active" onclick="window.__switchTab('resumen')">Resumen</button>
-      <button class="tab" onclick="window.__switchTab('agregar')">+ Agregar</button>
-      <button class="tab" onclick="window.__switchTab('gastos')">Lista</button>
-      <button class="tab" onclick="window.__switchTab('comparar')">Comparar</button>
-      <button class="tab" onclick="window.__switchTab('config')">⚙ Config</button>
-      <button class="tab" id="tab-admin" onclick="window.__switchTab('admin')" style="display:none">🔒 Admin</button>
+    <div class="header-right">
+      <select class="sel-sm" id="view-selector" onchange="window.__switchView(this.value)" style="font-weight:500;max-width:130px">
+        <option value="personal">👤 Personal</option>
+      </select>
+      <button class="btn btn-icon" onclick="window.__syncNow()" title="Sincronizar">↻</button>
+      <select class="sel-sm" id="month-select">
+        <option value="0">Enero</option><option value="1">Febrero</option><option value="2">Marzo</option>
+        <option value="3">Abril</option><option value="4">Mayo</option><option value="5">Junio</option>
+        <option value="6">Julio</option><option value="7">Agosto</option><option value="8">Septiembre</option>
+        <option value="9">Octubre</option><option value="10">Noviembre</option><option value="11">Diciembre</option>
+      </select>
+      <select class="sel-sm" id="year-select">
+        <option value="2024">2024</option>
+        <option value="2025">2025</option>
+        <option value="2026">2026</option>
+      </select>
     </div>
+  </div>
 
-    <!-- ── Resumen ───────────────────────────────────────────────────────────── -->
-    <div id="screen-resumen" class="screen active">
-      <div class="metrics" id="metrics-row"></div>
-      <div class="grid2">
-        <div class="card">
-          <div class="section-title">Por categoría</div>
-          <div id="cat-bars"></div>
-        </div>
-        <div class="card">
-          <div class="section-title">Distribución</div>
-          <div style="position:relative;height:180px">
-            <canvas id="pie-chart" role="img" aria-label="Torta de gastos por categoría"></canvas>
-          </div>
-          <div class="legend" id="pie-legend"></div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="section-title">Últimos gastos</div>
-        <div id="recent-list"></div>
-      </div>
-    </div>
+  <!-- ── Tabs ──────────────────────────────────────────────────────────────── -->
+  <div class="tabs">
+    <button class="tab active" onclick="window.__switchTab('resumen')">Resumen</button>
+    <button class="tab" onclick="window.__switchTab('agregar')">+ Agregar</button>
+    <button class="tab" onclick="window.__switchTab('gastos')">Lista</button>
+    <button class="tab" onclick="window.__switchTab('comparar')">Comparar</button>
+    <button class="tab" onclick="window.__switchTab('account')">Mi cuenta</button>
+    <button class="tab" id="tab-admin" onclick="window.__switchTab('admin')" style="display:none">Admin</button>
+  </div>
 
-    <!-- ── Agregar ───────────────────────────────────────────────────────────── -->
-    <div id="screen-agregar" class="screen">
-      <div class="card">
-        <div class="section-title">Nuevo gasto</div>
-        <div class="form-row">
-          <div><label class="form-label">Descripción</label><input type="text" id="new-desc"
-              placeholder="ej: Supermercado"></div>
-          <div><label class="form-label">Monto ($)</label><input type="number" id="new-amt" placeholder="0" min="0"
-              step="1"></div>
-        </div>
-        <div class="form-row">
-          <div>
-            <label class="form-label">Categoría</label>
-            <select id="new-cat">
-              <option>Alimentación</option>
-              <option>Transporte</option>
-              <option>Vivienda</option>
-              <option>Salud</option>
-              <option>Entretenimiento</option>
-              <option>Ropa</option>
-              <option>Educación</option>
-              <option>Servicios</option>
-              <option>Restaurantes</option>
-              <option>Otros</option>
-            </select>
-          </div>
-          <div>
-            <label class="form-label">Tipo</label>
-            <select id="new-type">
-              <option>Variable</option>
-              <option>Fijo</option>
-              <option>Extraordinario</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Fecha</label>
-          <input type="date" id="new-date" style="width:auto">
-        </div>
-        <button class="btn btn-primary" onclick="window.__addExpense()" style="width:100%">Guardar gasto</button>
-      </div>
-      <div class="card">
-        <div class="section-title">Acceso rápido</div>
-        <div style="display:flex;flex-wrap:wrap;gap:8px">
-          <button class="btn btn-sm" onclick="window.__quickAdd('Supermercado','Alimentación')">+ Supermercado</button>
-          <button class="btn btn-sm" onclick="window.__quickAdd('Transporte','Transporte')">+ Transporte</button>
-          <button class="btn btn-sm" onclick="window.__quickAdd('Alquiler','Vivienda')">+ Alquiler</button>
-          <button class="btn btn-sm" onclick="window.__quickAdd('Netflix','Entretenimiento')">+ Netflix</button>
-          <button class="btn btn-sm" onclick="window.__quickAdd('Farmacia','Salud')">+ Farmacia</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── Lista ─────────────────────────────────────────────────────────────── -->
-    <div id="screen-gastos" class="screen">
-      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-        <select class="sel-sm" id="filter-cat" onchange="window.__renderList()">
-          <option value="">Todas las categorías</option>
-          <option>Alimentación</option>
-          <option>Transporte</option>
-          <option>Vivienda</option>
-          <option>Salud</option>
-          <option>Entretenimiento</option>
-          <option>Ropa</option>
-          <option>Educación</option>
-          <option>Servicios</option>
-          <option>Restaurantes</option>
-          <option>Otros</option>
-        </select>
-        <select class="sel-sm" id="filter-type" onchange="window.__renderList()">
-          <option value="">Todos los tipos</option>
-          <option>Fijo</option>
-          <option>Variable</option>
-          <option>Extraordinario</option>
-        </select>
-        <select class="sel-sm" id="sort-by" onchange="window.__renderList()">
-          <option value="date-desc">Más reciente</option>
-          <option value="amt-desc">Mayor monto</option>
-          <option value="amt-asc">Menor monto</option>
-        </select>
-      </div>
-      <div class="card">
-        <div id="expense-list"></div>
-      </div>
-      <div id="list-total" style="margin-top:8px;font-size:13px;font-weight:500;color:var(--text2);text-align:right">
-      </div>
-    </div>
-
-    <!-- ── Comparar ──────────────────────────────────────────────────────────── -->
-    <div id="screen-comparar" class="screen">
-      <div class="card">
-        <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Seleccionar meses (máx. 5):</div>
-        <div id="month-pills" style="display:flex;flex-wrap:wrap;gap:6px"></div>
-      </div>
-      <div class="card">
-        <div class="section-title">Total mensual</div>
-        <div style="position:relative;height:210px">
-          <canvas id="compare-chart" role="img" aria-label="Comparativa mensual"></canvas>
-        </div>
-      </div>
+  <!-- ── Resumen ───────────────────────────────────────────────────────────── -->
+  <div id="screen-resumen" class="screen active">
+    <div class="metrics" id="metrics-row"></div>
+    <div class="grid2">
       <div class="card">
         <div class="section-title">Por categoría</div>
-        <div id="cat-compare-table"></div>
+        <div id="cat-bars"></div>
+      </div>
+      <div class="card">
+        <div class="section-title">Distribución</div>
+        <div style="position:relative;height:180px">
+          <canvas id="pie-chart" role="img" aria-label="Torta de gastos por categoría"></canvas>
+        </div>
+        <div class="legend" id="pie-legend"></div>
       </div>
     </div>
+    <div class="card">
+      <div class="section-title">Últimos gastos</div>
+      <div id="recent-list"></div>
+    </div>
+  </div>
 
-    <!-- ── Config ────────────────────────────────────────────────────────────── -->
-    <div id="screen-config" class="screen">
-
-      <div class="card">
-        <div class="section-title">Usuarios</div>
-        <div id="user-list" style="margin-bottom:12px"></div>
-        <div class="form-row" style="margin-bottom:8px">
-          <div><label class="form-label">Nombre</label><input type="text" id="new-username" placeholder="ej: María">
-          </div>
-          <div>
-            <label class="form-label">ID de Telegram</label>
-            <input type="text" id="new-userid" placeholder="123456789" inputmode="numeric">
-          </div>
-        </div>
-        <button class="btn" onclick="window.__addUser()" style="width:100%">Agregar usuario</button>
-        <div style="font-size:11px;color:var(--text2);margin-top:6px">
-          El ID lo encontrás mandando <code>/ayuda</code> al bot
-        </div>
-      </div>
-
-      <div class="card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-          <div class="section-title" style="margin:0">Sincronización</div>
-          <span id="sheets-badge" style="display:none" class="sheets-badge">📊 Sheets activo</span>
-        </div>
-        <div id="server-url-status" style="font-size:12px;color:var(--text2);margin-bottom:12px"></div>
-        <div class="form-group" style="display:flex;align-items:center;gap:8px">
-          <input type="checkbox" id="auto-sync" style="width:auto" onchange="window.__saveServerConfig()">
-          <label for="auto-sync" style="margin:0;cursor:pointer;font-size:13px">Sincronizar automáticamente al
-            abrir</label>
-        </div>
-        <button class="btn" onclick="window.__syncNow()"
-          style="width:100%;color:var(--blue);border-color:var(--blue)">Sincronizar ahora ↗</button>
-      </div>
-
-      <div class="card">
-        <div class="section-title">Usuario activo</div>
-        <div id="active-user-picker" style="display:flex;flex-wrap:wrap;gap:8px"></div>
-      </div>
-
-      <div class="card">
-        <div class="section-title">Grupos</div>
-        <div id="group-list" style="margin-bottom:12px"></div>
-        <div class="form-row" style="margin-bottom:8px">
-          <div><label class="form-label">Nombre del grupo</label><input type="text" id="new-groupname"
-              placeholder="ej: Casa"></div>
-          <div><label class="form-label">ID del grupo de Telegram</label><input type="text" id="new-groupid"
-              placeholder="-100123456789"></div>
-        </div>
-        <button class="btn" onclick="window.__addGroup()" style="width:100%">Agregar grupo</button>
-        <div style="font-size:11px;color:var(--text2);margin-top:6px">El ID lo encontrás mandando /ayuda al bot desde el
-          grupo</div>
-      </div>
-
-      <!-- Google Sheets por usuario -->
-      <div class="card" id="sheets-card">
-        <div class="section-title">Google Sheets</div>
-        <div style="font-size:12px;color:var(--text2)">Cargando...</div>
-      </div>
-
-    </div><!-- /screen-config -->
-
-  </div><!-- /app -->
-
-  <!-- ── Toast ──────────────────────────────────────────────────────────────── -->
-  <div class="toast" id="toast"></div>
-
-  <!-- ── Modal de edición ───────────────────────────────────────────────────── -->
-  <div class="modal-backdrop" id="edit-modal" onclick="window.__closeEditModal(event)">
-    <div class="modal">
-      <div class="modal-title">Editar gasto</div>
-      <input type="hidden" id="edit-id">
+  <!-- ── Agregar ───────────────────────────────────────────────────────────── -->
+  <div id="screen-agregar" class="screen">
+    <div class="card">
+      <div class="section-title">Nuevo gasto</div>
       <div class="form-row">
-        <div><label class="form-label">Descripción</label><input type="text" id="edit-desc"></div>
-        <div><label class="form-label">Monto ($)</label><input type="number" id="edit-amt" min="0" step="1"></div>
+        <div><label class="form-label">Descripción</label><input type="text" id="new-desc" placeholder="ej: Supermercado"></div>
+        <div><label class="form-label">Monto ($)</label><input type="number" id="new-amt" placeholder="0" min="0" step="1"></div>
       </div>
       <div class="form-row">
         <div>
           <label class="form-label">Categoría</label>
-          <select id="edit-cat">
-            <option>Alimentación</option>
-            <option>Transporte</option>
-            <option>Vivienda</option>
-            <option>Salud</option>
-            <option>Entretenimiento</option>
-            <option>Ropa</option>
-            <option>Educación</option>
-            <option>Servicios</option>
-            <option>Restaurantes</option>
+          <select id="new-cat">
+            <option>Alimentación</option><option>Transporte</option><option>Vivienda</option>
+            <option>Salud</option><option>Entretenimiento</option><option>Ropa</option>
+            <option>Educación</option><option>Servicios</option><option>Restaurantes</option>
             <option>Otros</option>
           </select>
         </div>
         <div>
           <label class="form-label">Tipo</label>
-          <select id="edit-type">
-            <option>Variable</option>
-            <option>Fijo</option>
-            <option>Extraordinario</option>
+          <select id="new-type">
+            <option>Variable</option><option>Fijo</option><option>Extraordinario</option>
           </select>
         </div>
       </div>
       <div class="form-group">
         <label class="form-label">Fecha</label>
-        <input type="date" id="edit-date" style="width:auto">
+        <input type="date" id="new-date" style="width:auto">
       </div>
-      <div class="modal-footer">
-        <button class="btn" onclick="window.__closeEditModal()" style="flex:1">Cancelar</button>
-        <button class="btn btn-primary" onclick="window.__saveEdit()" style="flex:2">Guardar cambios</button>
+      <button class="btn btn-primary" onclick="window.__addExpense()" style="width:100%">Guardar gasto</button>
+    </div>
+    <div class="card">
+      <div class="section-title">Acceso rápido</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <button class="btn btn-sm" onclick="window.__quickAdd('Supermercado','Alimentación')">+ Supermercado</button>
+        <button class="btn btn-sm" onclick="window.__quickAdd('Transporte','Transporte')">+ Transporte</button>
+        <button class="btn btn-sm" onclick="window.__quickAdd('Alquiler','Vivienda')">+ Alquiler</button>
+        <button class="btn btn-sm" onclick="window.__quickAdd('Netflix','Entretenimiento')">+ Netflix</button>
+        <button class="btn btn-sm" onclick="window.__quickAdd('Farmacia','Salud')">+ Farmacia</button>
       </div>
     </div>
   </div>
 
-  <!-- ── Screen: login admin ────────────────────────────────────────────────── -->
-  <div id="screen-admin" class="screen">
-
-    <!-- Login (visible cuando no hay sesión) -->
-    <div id="admin-login" class="card">
-      <div class="section-title">🔒 Acceso admin</div>
-      <div style="font-size:13px;color:var(--text2);margin-bottom:16px">
-        Ingresá con tu Telegram ID y la contraseña de administrador.
-      </div>
-      <div class="form-group">
-        <label class="form-label">Tu Telegram ID</label>
-        <input type="text" id="admin-telegram-id" placeholder="123456789" inputmode="numeric">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Contraseña admin</label>
-        <input type="password" id="admin-password" placeholder="••••••••"
-          onkeydown="if(event.key==='Enter') window.__adminLoginFromUI()">
-      </div>
-      <div id="admin-login-error" style="font-size:12px;color:var(--red);margin-bottom:10px;min-height:16px"></div>
-      <button class="btn btn-primary" onclick="window.__adminLoginFromUI()" style="width:100%">Iniciar sesión</button>
+  <!-- ── Lista ─────────────────────────────────────────────────────────────── -->
+  <div id="screen-gastos" class="screen">
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <select class="sel-sm" id="filter-cat" onchange="window.__renderList()">
+        <option value="">Todas las categorías</option>
+        <option>Alimentación</option><option>Transporte</option><option>Vivienda</option>
+        <option>Salud</option><option>Entretenimiento</option><option>Ropa</option>
+        <option>Educación</option><option>Servicios</option><option>Restaurantes</option><option>Otros</option>
+      </select>
+      <select class="sel-sm" id="filter-type" onchange="window.__renderList()">
+        <option value="">Todos los tipos</option>
+        <option>Fijo</option><option>Variable</option><option>Extraordinario</option>
+      </select>
+      <select class="sel-sm" id="sort-by" onchange="window.__renderList()">
+        <option value="date-desc">Más reciente</option>
+        <option value="amt-desc">Mayor monto</option>
+        <option value="amt-asc">Menor monto</option>
+      </select>
     </div>
-
-    <!-- Panel admin (visible cuando hay sesión activa) -->
-    <div id="admin-panel" style="display:none"></div>
-
+    <div class="card"><div id="expense-list"></div></div>
+    <div id="list-total" style="margin-top:8px;font-size:13px;font-weight:500;color:var(--text2);text-align:right"></div>
   </div>
 
-  <!-- ── Módulo principal (ES6, carga todo el árbol de imports) ─────────────── -->
-  <script type="module" src="/js/app.js"></script>
+  <!-- ── Comparar ──────────────────────────────────────────────────────────── -->
+  <div id="screen-comparar" class="screen">
+    <div class="card">
+      <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Seleccionar meses (máx. 5):</div>
+      <div id="month-pills" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+    </div>
+    <div class="card">
+      <div class="section-title">Total mensual</div>
+      <div style="position:relative;height:210px">
+        <canvas id="compare-chart" role="img" aria-label="Comparativa mensual"></canvas>
+      </div>
+    </div>
+    <div class="card">
+      <div class="section-title">Por categoría</div>
+      <div id="cat-compare-table"></div>
+    </div>
+  </div>
+
+  <!-- ── Config ────────────────────────────────────────────────────────────── -->
+  <!-- Mi cuenta -->
+  <div id="screen-account" class="screen"></div>
+
+  <!-- Config (solo admin, oculta para usuarios normales) -->
+  <div id="screen-config" class="screen">
+    <div class="card">
+      <div class="section-title">Usuarios</div>
+      <div id="user-list" style="margin-bottom:12px"></div>
+      <div class="form-row" style="margin-bottom:8px">
+        <div><label class="form-label">Nombre</label><input type="text" id="new-username" placeholder="ej: María"></div>
+        <div><label class="form-label">ID de Telegram</label><input type="text" id="new-userid" placeholder="123456789" inputmode="numeric"></div>
+      </div>
+      <button class="btn" onclick="window.__addUser()" style="width:100%">Agregar usuario</button>
+      <div style="font-size:11px;color:var(--text2);margin-top:6px">El ID lo encontrás mandando <code>/ayuda</code> al bot</div>
+    </div>
+    <div class="card">
+      <div class="section-title">Usuario activo</div>
+      <div id="active-user-picker" style="display:flex;flex-wrap:wrap;gap:8px"></div>
+    </div>
+    <div class="card">
+      <div class="section-title">Grupos</div>
+      <div id="group-list" style="margin-bottom:12px"></div>
+      <div class="form-row" style="margin-bottom:8px">
+        <div><label class="form-label">Nombre del grupo</label><input type="text" id="new-groupname" placeholder="ej: Casa"></div>
+        <div><label class="form-label">ID del grupo de Telegram</label><input type="text" id="new-groupid" placeholder="-100123456789"></div>
+      </div>
+      <button class="btn" onclick="window.__addGroup()" style="width:100%">Agregar grupo</button>
+      <div style="font-size:11px;color:var(--text2);margin-top:6px">El ID lo encontrás mandando /ayuda al bot desde el grupo</div>
+    </div>
+  </div><!-- /screen-config -->
+
+</div><!-- /app -->
+
+<!-- ── Toast ──────────────────────────────────────────────────────────────── -->
+<div class="toast" id="toast"></div>
+
+<!-- ── Modal de edición ───────────────────────────────────────────────────── -->
+<div class="modal-backdrop" id="edit-modal" onclick="window.__closeEditModal(event)">
+  <div class="modal">
+    <div class="modal-title">Editar gasto</div>
+    <input type="hidden" id="edit-id">
+    <div class="form-row">
+      <div><label class="form-label">Descripción</label><input type="text" id="edit-desc"></div>
+      <div><label class="form-label">Monto ($)</label><input type="number" id="edit-amt" min="0" step="1"></div>
+    </div>
+    <div class="form-row">
+      <div>
+        <label class="form-label">Categoría</label>
+        <select id="edit-cat">
+          <option>Alimentación</option><option>Transporte</option><option>Vivienda</option>
+          <option>Salud</option><option>Entretenimiento</option><option>Ropa</option>
+          <option>Educación</option><option>Servicios</option><option>Restaurantes</option><option>Otros</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label">Tipo</label>
+        <select id="edit-type">
+          <option>Variable</option><option>Fijo</option><option>Extraordinario</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Fecha</label>
+      <input type="date" id="edit-date" style="width:auto">
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="window.__closeEditModal()" style="flex:1">Cancelar</button>
+      <button class="btn btn-primary" onclick="window.__saveEdit()" style="flex:2">Guardar cambios</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Screen: login admin ────────────────────────────────────────────────── -->
+<div id="screen-admin" class="screen">
+
+  <!-- Login (visible cuando no hay sesión) -->
+  <div id="admin-login" class="card">
+    <div class="section-title">🔒 Acceso admin</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:16px">
+      Ingresá con tu Telegram ID y la contraseña de administrador.
+    </div>
+    <div class="form-group">
+      <label class="form-label">Tu Telegram ID</label>
+      <input type="text" id="admin-telegram-id" placeholder="123456789" inputmode="numeric">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Contraseña admin</label>
+      <input type="password" id="admin-password" placeholder="••••••••"
+             onkeydown="if(event.key==='Enter') window.__adminLoginFromUI()">
+    </div>
+    <div id="admin-login-error" style="font-size:12px;color:var(--red);margin-bottom:10px;min-height:16px"></div>
+    <button class="btn btn-primary" onclick="window.__adminLoginFromUI()" style="width:100%">Iniciar sesión</button>
+  </div>
+
+  <!-- Panel admin (visible cuando hay sesión activa) -->
+  <div id="admin-panel" style="display:none"></div>
+
+</div>
+
+<!-- ── Módulo principal (ES6, carga todo el árbol de imports) ─────────────── -->
+<script type="module" src="/js/app.js"></script>
 
 </body>
-
 </html>
