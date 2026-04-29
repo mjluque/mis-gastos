@@ -7,32 +7,40 @@ import { syncUserManual, fetchGroupData, saveServerConfig, checkServerHealth } f
 import { openEditFromBtn } from "./modals.js";
 
 // Estado local de Charts y comparación
-let pieChart     = null;
+let pieChart = null;
 let compareChart = null;
 export let selectedMonths = [];
 export function setSelectedMonths(arr) { selectedMonths = arr; }
 
-// ── Resumen personal ──────────────────────────────────────────────────────────
+// ── Resumen ───────────────────────────────────────────────────────────────────
 
-export function renderResumen(currentView, activeGroupId) {
-  if (currentView === "group") return renderResumenGrupal(activeGroupId);
+export function renderResumen(contextData) {
+  // contextData viene de buildContextData() en app.js
+  const ctx = contextData || { expenses: [], groups: [] };
+  const exps = ctx.expenses || [];
+  const isGroup = ctx.view === "group";
 
-  const key  = curKey();
-  const exps = curExpenses(key);
   const total = exps.reduce((s, e) => s + e.amt, 0);
-  const fijos = exps.filter((e) => e.type === "Fijo").reduce((s, e) => s + e.amt, 0);
-  const vars  = exps.filter((e) => e.type === "Variable").reduce((s, e) => s + e.amt, 0);
+  const fijos = exps.filter(e => e.type === "Fijo").reduce((s, e) => s + e.amt, 0);
+  const vars = exps.filter(e => e.type === "Variable").reduce((s, e) => s + e.amt, 0);
+  const extras = exps.filter(e => e.type === "Extraordinario").reduce((s, e) => s + e.amt, 0);
+
+  // Métricas: en vista unificada mostramos personal vs grupal
+  const personal = exps.filter(e => e.scope !== "group").reduce((s, e) => s + e.amt, 0);
+  const grupal = exps.filter(e => e.scope === "group").reduce((s, e) => s + e.amt, 0);
+  const hasGroup = grupal > 0;
 
   document.getElementById("metrics-row").innerHTML = `
     <div class="metric"><div class="metric-label">Total del mes</div><div class="metric-value">${fmt(total)}</div></div>
-    <div class="metric"><div class="metric-label">Fijos</div><div class="metric-value">${fmt(fijos)}</div></div>
-    <div class="metric"><div class="metric-label">Variables</div><div class="metric-value">${fmt(vars)}</div></div>
+    <div class="metric"><div class="metric-label">${hasGroup ? "👤 Personal" : "Fijos"}</div><div class="metric-value">${hasGroup ? fmt(personal) : fmt(fijos)}</div></div>
+    <div class="metric"><div class="metric-label">${hasGroup ? "👥 Grupal" : "Variables"}</div><div class="metric-value">${hasGroup ? fmt(grupal) : fmt(vars)}</div></div>
     <div class="metric"><div class="metric-label">Registros</div><div class="metric-value">${exps.length}</div></div>`;
 
+  // Barras por categoría (sobre total unificado)
   const byCat = {};
-  exps.forEach((e) => { byCat[e.cat] = (byCat[e.cat] || 0) + e.amt; });
+  exps.forEach(e => { byCat[e.cat] = (byCat[e.cat] || 0) + e.amt; });
   const sorted = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
-  const max    = sorted[0] ? sorted[0][1] : 1;
+  const max = sorted[0] ? sorted[0][1] : 1;
 
   document.getElementById("cat-bars").innerHTML = sorted.length
     ? sorted.map(([cat, amt]) => `
@@ -43,15 +51,16 @@ export function renderResumen(currentView, activeGroupId) {
         </div>`).join("")
     : '<div class="empty">Sin gastos este mes</div>';
 
+  // Gráfico de torta
   if (pieChart) pieChart.destroy();
   if (sorted.length) {
     pieChart = new Chart(document.getElementById("pie-chart"), {
       type: "doughnut",
       data: {
-        labels: sorted.map((x) => x[0]),
-        datasets: [{ data: sorted.map((x) => x[1]), backgroundColor: sorted.map((x) => CAT_COLORS[x[0]] || "#888"), borderWidth: 1, borderColor: "rgba(255,255,255,0.3)" }],
+        labels: sorted.map(x => x[0]),
+        datasets: [{ data: sorted.map(x => x[1]), backgroundColor: sorted.map(x => CAT_COLORS[x[0]] || "#888"), borderWidth: 1, borderColor: "rgba(255,255,255,0.3)" }],
       },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${fmt(ctx.raw)}` } } } },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.label}: ${fmt(ctx.raw)}` } } } },
     });
     document.getElementById("pie-legend").innerHTML = sorted.map(([cat, amt]) => `
       <div class="legend-item">
@@ -60,87 +69,65 @@ export function renderResumen(currentView, activeGroupId) {
       </div>`).join("");
   }
 
+  // Últimos gastos — con badge de contexto si hay gastos grupales
   const recent = [...exps].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
   document.getElementById("recent-list").innerHTML = recent.length
-    ? recent.map((e) => `
-        <div class="expense-row">
-          <div class="cat-dot" style="background:${CAT_COLORS[e.cat] || "#888"}"></div>
-          <div class="expense-desc">${e.desc}<div class="expense-sub">${e.cat} · ${e.type} · ${e.date}</div></div>
-          <div class="expense-amt">${fmt(e.amt)}</div>
-        </div>`).join("")
-    : '<div class="empty">Agregá tu primer gasto del mes</div>';
-}
-
-// ── Resumen grupal ────────────────────────────────────────────────────────────
-
-export async function renderResumenGrupal(activeGroupId) {
-  const g = groups.find((x) => x.id === activeGroupId);
-  if (!g) {
-    document.getElementById("metrics-row").innerHTML = '<div style="color:var(--text2);font-size:13px">Configurá el grupo en ⚙ Config.</div>';
-    return;
-  }
-
-  setSyncStatus("syncing", "Cargando grupo...");
-  const serverData = await fetchGroupData(activeGroupId);
-  const time = new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
-  setSyncStatus(serverData ? "ok" : "err", serverData ? `${g.name} · ${time}` : "Sin conexión al servidor");
-
-  const data = loadGroupData(activeGroupId);
-  const key  = curKey();
-  const exps = data[key] || [];
-
-  const total    = exps.reduce((s, e) => s + e.amt, 0);
-  const byPerson = {};
-  exps.forEach((e) => {
-    const n = e.user_name || "Sin nombre";
-    if (!byPerson[n]) byPerson[n] = 0;
-    byPerson[n] += e.amt;
-  });
-  const personas = Object.keys(byPerson).length;
-
-  document.getElementById("metrics-row").innerHTML = `
-    <div class="metric"><div class="metric-label">Total grupal</div><div class="metric-value">${fmt(total)}</div></div>
-    <div class="metric"><div class="metric-label">Personas</div><div class="metric-value">${personas}</div></div>
-    <div class="metric"><div class="metric-label">Registros</div><div class="metric-value">${exps.length}</div></div>
-    <div class="metric"><div class="metric-label">Promedio</div><div class="metric-value">${personas ? fmt(Math.round(total / personas)) : "—"}</div></div>`;
-
-  const maxP = Math.max(...Object.values(byPerson), 1);
-  document.getElementById("cat-bars").innerHTML = Object.entries(byPerson)
-    .sort((a, b) => b[1] - a[1])
-    .map(([name, amt]) => `
-      <div class="bar-row">
-        <div class="bar-label" style="width:96px">${name.split(" ")[0]}</div>
-        <div class="bar-track"><div class="bar-fill" style="width:${(amt / maxP * 100).toFixed(1)}%;background:var(--blue)"></div></div>
-        <div class="bar-val">${fmt(amt)}</div>
-      </div>`).join("");
-
-  const recent = [...exps].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6);
-  document.getElementById("recent-list").innerHTML = recent.length
-    ? recent.map((e) => `
-        <div class="expense-row">
-          <div class="cat-dot" style="background:${CAT_COLORS[e.cat] || "#888"}"></div>
-          <div class="expense-desc">${e.desc}<div class="expense-sub">${e.user_name || ""} · ${e.cat} · ${e.date}</div></div>
-          <div class="expense-amt">${fmt(e.amt)}</div>
-        </div>`).join("")
-    : '<div class="empty">Sin gastos grupales este mes</div>';
+    ? recent.map(e => {
+      const groupName = e.scope === "group"
+        ? (ctx.groups || []).find(g => g.telegramId === e.group_id)?.name || "Grupo"
+        : null;
+      const ctxBadge = hasGroup
+        ? groupName
+          ? `<span style="font-size:10px;color:var(--blue)">👥 ${groupName}</span>`
+          : `<span style="font-size:10px;color:var(--text3)">👤</span>`
+        : "";
+      const who = e.scope === "group" && e.user_name
+        ? `<span style="font-weight:500">${e.user_name}</span> · `
+        : "";
+      return `
+          <div class="expense-row">
+            <div class="cat-dot" style="background:${CAT_COLORS[e.cat] || "#888"}"></div>
+            <div class="expense-desc">${e.desc}
+              <div class="expense-sub">${who}${e.cat} · ${e.date} ${ctxBadge}</div>
+            </div>
+            <div class="expense-amt">${fmt(e.amt)}</div>
+          </div>`;
+    }).join("")
+    : '<div class="empty">Sin gastos este mes</div>';
 }
 
 // ── Lista de gastos ───────────────────────────────────────────────────────────
 
-export function renderList() {
-  const key    = curKey();
-  const exps   = curExpenses(key);
-  const fcat   = document.getElementById("filter-cat").value;
-  const ftype  = document.getElementById("filter-type").value;
-  const sort   = document.getElementById("sort-by").value;
+export function renderList(contextData) {
+  // contextData: { view: 'personal'|'group', expenses: [...], groups: [...] }
+  // Se recibe desde app.js que resuelve qué datos mostrar según el contexto activo
+  const ctx = contextData || { view: "personal", expenses: [], groups: [] };
+  const exps = ctx.expenses || [];
+  const isGroup = ctx.view === "group";
 
-  let filtered = exps.filter((e) => (!fcat || e.cat === fcat) && (!ftype || e.type === ftype));
+  // Actualizar filtro de contexto
+  const fctx = document.getElementById("filter-ctx")?.value || "";
+  const fcat = document.getElementById("filter-cat").value;
+  const ftype = document.getElementById("filter-type").value;
+  const sort = document.getElementById("sort-by").value;
+
+  let filtered = exps.filter((e) => {
+    if (fcat && e.cat !== fcat) return false;
+    if (ftype && e.type !== ftype) return false;
+    if (fctx) {
+      if (fctx === "__personal__" && e.scope !== "private") return false;
+      if (fctx !== "__personal__" && e.group_id !== fctx) return false;
+    }
+    return true;
+  });
+
   if (sort === "amt-desc") filtered.sort((a, b) => b.amt - a.amt);
   else if (sort === "amt-asc") filtered.sort((a, b) => a.amt - b.amt);
   else filtered.sort((a, b) => b.date.localeCompare(a.date));
 
   const recurIcon = (id, isRecurring) => `
-    <button onclick="window.__toggleRecurring(${id}, this)" title="${isRecurring ? "Quitar recurrente" : "Marcar como recurrente"}"
+    <button onclick="window.__toggleRecurring(${id}, this)"
+      title="${isRecurring ? "Quitar recurrente" : "Marcar como recurrente"}"
       style="background:none;border:none;cursor:pointer;padding:4px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0">
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
         <path d="M13 8A5 5 0 1 1 8 3" stroke="${isRecurring ? "#1D9E75" : "var(--text3)"}" stroke-width="1.5" stroke-linecap="round"/>
@@ -148,23 +135,43 @@ export function renderList() {
       </svg>
     </button>`;
 
+  // Columna "Quién" solo en vista grupal o vista unificada con gastos grupales
+  const showWho = exps.some(e => e.scope === "group" && e.user_name);
+
   document.getElementById("expense-list").innerHTML = filtered.length
-    ? filtered.map((e) => `
-        <div class="expense-row">
-          <div class="cat-dot" style="background:${CAT_COLORS[e.cat] || "#888"}"></div>
-          <div class="expense-desc">${e.desc}<div class="expense-sub">${e.cat} · ${e.type} · ${e.date}</div></div>
-          <div class="expense-amt">${fmt(e.amt)}</div>
-          ${recurIcon(e.id, e.is_recurring)}
-          <button class="btn btn-sm btn-edit"
-            data-id="${e.id}"
-            data-desc="${(e.desc || "").replace(/"/g, "&quot;")}"
-            data-amt="${e.amt}"
-            data-cat="${e.cat}"
-            data-type="${e.type}"
-            data-date="${e.date}"
-            onclick="window.__openEditFromBtn(this)">✏</button>
-          <button class="btn btn-sm btn-danger" onclick="window.__deleteExpense(${e.id})">×</button>
-        </div>`).join("")
+    ? filtered.map((e) => {
+      const ctxBadge = e.scope === "group"
+        ? (() => {
+          const g = (ctx.groups || []).find(g => g.telegramId === e.group_id);
+          return `<span style="font-size:10px;color:var(--blue);background:var(--color-background-info,#E6F1FB);padding:1px 6px;border-radius:10px;white-space:nowrap">👥 ${g?.name || "Grupo"}</span>`;
+        })()
+        : `<span style="font-size:10px;color:var(--text3);white-space:nowrap">👤 Personal</span>`;
+
+      return `
+          <div class="expense-row">
+            <div class="cat-dot" style="background:${CAT_COLORS[e.cat] || "#888"}"></div>
+            <div class="expense-desc">
+              ${e.desc}
+              <div class="expense-sub">
+                ${showWho && e.user_name ? `<span style="font-weight:500">${e.user_name}</span> · ` : ""}${e.cat} · ${e.type} · ${e.date}
+                ${showWho ? " · " + ctxBadge : ""}
+              </div>
+            </div>
+            <div class="expense-amt">${fmt(e.amt)}</div>
+            ${e.scope !== "group" ? recurIcon(e.id, e.is_recurring) : ""}
+            ${e.scope !== "group" ? `
+              <button class="btn btn-sm btn-edit"
+                data-id="${e.id}"
+                data-desc="${(e.desc || "").replace(/"/g, "&quot;")}"
+                data-amt="${e.amt}"
+                data-cat="${e.cat}"
+                data-type="${e.type}"
+                data-date="${e.date}"
+                onclick="window.__openEditFromBtn(this)">✏</button>
+              <button class="btn btn-sm btn-danger" onclick="window.__deleteExpense(${e.id})">×</button>
+            ` : ""}
+          </div>`;
+    }).join("")
     : '<div class="empty">Sin gastos con ese filtro</div>';
 
   const total = filtered.reduce((s, e) => s + e.amt, 0);
@@ -173,36 +180,74 @@ export function renderList() {
 
 // ── Comparar ──────────────────────────────────────────────────────────────────
 
-export function renderCompare() {
-  const data    = curData();
-  const allKeys = Object.keys(data).filter((k) => (data[k] || []).length > 0).sort();
+export function renderCompare(contextData) {
+  const ctx = contextData || { view: "personal", data: {}, groups: [] };
+  const data = ctx.data || {};
+
+  // Actualizar selector de contexto en Comparar
+  const ctxSel = document.getElementById("compare-ctx");
+  if (ctxSel && ctx.groups?.length) {
+    const current = ctxSel.value;
+    ctxSel.innerHTML =
+      `<option value="__personal__">👤 Personal</option>` +
+      ctx.groups.map(g => `<option value="${g.telegramId}">👥 ${g.name}</option>`).join("");
+    if (current) ctxSel.value = current;
+  }
+
+  // Filtrar data por contexto seleccionado
+  const selectedCtx = ctxSel?.value || "__personal__";
+  const filteredData = {};
+  for (const [key, exps] of Object.entries(data)) {
+    const f = exps.filter(e =>
+      selectedCtx === "__personal__"
+        ? e.scope === "private"
+        : e.group_id === selectedCtx
+    );
+    if (f.length) filteredData[key] = f;
+  }
+
+  const allKeys = Object.keys(filteredData).sort();
 
   document.getElementById("month-pills").innerHTML = allKeys.length
     ? allKeys.map((k) => {
-        const [y, m] = k.split("-");
-        return `<button class="pill ${selectedMonths.includes(k) ? "active" : ""}" onclick="window.__toggleMonth('${k}')">${MONTHS[parseInt(m)].substring(0, 3)} ${y}</button>`;
-      }).join("")
-    : '<div style="font-size:12px;color:var(--text3)">Sin datos aún</div>';
+      const [y, m] = k.split("-");
+      return `<button class="pill ${selectedMonths.includes(k) ? "active" : ""}"
+          onclick="window.__toggleMonth('${k}')">${MONTHS[parseInt(m)].substring(0, 3)} ${y}</button>`;
+    }).join("")
+    : (() => {
+      const isGroupCtx = selectedCtx !== "__personal__";
+      return `<div style="font-size:12px;color:var(--text3)">
+          ${isGroupCtx
+          ? "Sin datos para este grupo. Sincronizá desde Mi cuenta para ver el historial."
+          : "Sin gastos registrados aún."}
+        </div>`;
+    })();
 
-  if (!allKeys.length) return;
-  if (!selectedMonths.length) {
-    selectedMonths = allKeys.slice(-Math.min(3, allKeys.length));
-    renderCompare();
+  if (!allKeys.length) {
+    if (compareChart) { compareChart.destroy(); compareChart = null; }
+    document.getElementById("cat-compare-table").innerHTML = "";
     return;
   }
 
-  const labels = selectedMonths.map((k) => { const [y, m] = k.split("-"); return `${MONTHS[parseInt(m)].substring(0, 3)} ${y}`; });
-  const totals = selectedMonths.map((k) => (data[k] || []).reduce((s, e) => s + e.amt, 0));
+  if (!selectedMonths.length || !selectedMonths.some(k => allKeys.includes(k))) {
+    setSelectedMonths(allKeys.slice(-Math.min(3, allKeys.length)));
+    renderCompare(contextData);
+    return;
+  }
+
+  const validMonths = selectedMonths.filter(k => allKeys.includes(k));
+  const labels = validMonths.map((k) => { const [y, m] = k.split("-"); return `${MONTHS[parseInt(m)].substring(0, 3)} ${y}`; });
+  const totals = validMonths.map((k) => (filteredData[k] || []).reduce((s, e) => s + e.amt, 0));
 
   if (compareChart) compareChart.destroy();
   compareChart = new Chart(document.getElementById("compare-chart"), {
     type: "bar",
-    data: { labels, datasets: [{ label: "Total", data: totals, backgroundColor: ["#378ADD","#1D9E75","#D85A30","#534AB7","#BA7517"].slice(0, selectedMonths.length), borderRadius: 4 }] },
+    data: { labels, datasets: [{ label: "Total", data: totals, backgroundColor: ["#378ADD", "#1D9E75", "#D85A30", "#534AB7", "#BA7517"].slice(0, validMonths.length), borderRadius: 4 }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: (v) => fmt(v) }, grid: { color: "rgba(128,128,128,0.08)" } }, x: { grid: { display: false } } } },
   });
 
   const rows = Object.keys(CAT_COLORS).map((cat) => {
-    const vals = selectedMonths.map((k) => (data[k] || []).filter((e) => e.cat === cat).reduce((s, e) => s + e.amt, 0));
+    const vals = validMonths.map((k) => (filteredData[k] || []).filter((e) => e.cat === cat).reduce((s, e) => s + e.amt, 0));
     return vals.every((v) => v === 0) ? null : { cat, vals };
   }).filter(Boolean);
 
@@ -219,16 +264,16 @@ export function renderCompare() {
                 <span style="width:7px;height:7px;border-radius:50%;background:${CAT_COLORS[r.cat]};flex-shrink:0;display:inline-block"></span>${r.cat}
               </td>
               ${r.vals.map((v, i) => {
-                const d = i > 0 && r.vals[i-1] > 0 ? ((v - r.vals[i-1]) / r.vals[i-1] * 100) : null;
-                return `<td style="text-align:right;padding:5px 6px">${v > 0 ? fmt(v) : "—"}${d !== null && v > 0 ? `<span class="${d > 0 ? "delta-neg" : "delta-pos"}"> ${d > 0 ? "▲" : "▼"}${Math.abs(d).toFixed(0)}%</span>` : ""}</td>`;
-              }).join("")}
+      const d = i > 0 && r.vals[i - 1] > 0 ? ((v - r.vals[i - 1]) / r.vals[i - 1] * 100) : null;
+      return `<td style="text-align:right;padding:5px 6px">${v > 0 ? fmt(v) : "—"}${d !== null && v > 0 ? `<span class="${d > 0 ? "delta-neg" : "delta-pos"}"> ${d > 0 ? "▲" : "▼"}${Math.abs(d).toFixed(0)}%</span>` : ""}</td>`;
+    }).join("")}
             </tr>`).join("")}
           <tr style="border-top:1px solid var(--border2);font-weight:500">
             <td style="padding:6px 0">Total</td>
             ${totals.map((v, i) => {
-              const d = i > 0 && totals[i-1] > 0 ? ((v - totals[i-1]) / totals[i-1] * 100) : null;
-              return `<td style="text-align:right;padding:6px 6px">${fmt(v)}${d !== null ? `<span class="${d > 0 ? "delta-neg" : "delta-pos"}"> ${d > 0 ? "▲" : "▼"}${Math.abs(d).toFixed(0)}%</span>` : ""}</td>`;
-            }).join("")}
+      const d = i > 0 && totals[i - 1] > 0 ? ((v - totals[i - 1]) / totals[i - 1] * 100) : null;
+      return `<td style="text-align:right;padding:6px 6px">${fmt(v)}${d !== null ? `<span class="${d > 0 ? "delta-neg" : "delta-pos"}"> ${d > 0 ? "▲" : "▼"}${Math.abs(d).toFixed(0)}%</span>` : ""}</td>`;
+    }).join("")}
           </tr>
         </tbody>
       </table>`
@@ -239,7 +284,7 @@ export function renderCompare() {
 
 // Ícono de Google Sheets reutilizable como string SVG
 const SHEETS_ICON_GREEN = `<svg width="12" height="12" viewBox="0 0 16 16" style="flex-shrink:0"><rect width="16" height="16" rx="2" fill="#1e7e45"/><rect x="3" y="4.5" width="10" height="1.3" rx="0.4" fill="white"/><rect x="3" y="7.3" width="10" height="1.3" rx="0.4" fill="white"/><rect x="3" y="10.1" width="6.5" height="1.3" rx="0.4" fill="white"/></svg>`;
-const SHEETS_ICON_GRAY  = `<svg width="12" height="12" viewBox="0 0 16 16" style="flex-shrink:0"><rect width="16" height="16" rx="2" fill="#b4b2a9"/><rect x="3" y="4.5" width="10" height="1.3" rx="0.4" fill="white"/><rect x="3" y="7.3" width="10" height="1.3" rx="0.4" fill="white"/><rect x="3" y="10.1" width="6.5" height="1.3" rx="0.4" fill="white"/></svg>`;
+const SHEETS_ICON_GRAY = `<svg width="12" height="12" viewBox="0 0 16 16" style="flex-shrink:0"><rect width="16" height="16" rx="2" fill="#b4b2a9"/><rect x="3" y="4.5" width="10" height="1.3" rx="0.4" fill="white"/><rect x="3" y="7.3" width="10" height="1.3" rx="0.4" fill="white"/><rect x="3" y="10.1" width="6.5" height="1.3" rx="0.4" fill="white"/></svg>`;
 
 // Cache de estados de Sheets — compartido via window para evitar imports circulares
 // sheets.js escribe en window.__sheetsStatusCache
@@ -249,18 +294,18 @@ function getSheetsCache() { return window.__sheetsStatusCache || {}; }
 export function renderConfig() {
   document.getElementById("user-list").innerHTML = users.length
     ? users.map((u) => {
-        const isActive  = activeId === u.id;
-        const cache     = getSheetsCache()[u.id] || null;
+      const isActive = activeId === u.id;
+      const cache = getSheetsCache()[u.id] || null;
 
-        // Bloque inline de Google Sheets según estado cacheado
-        let sheetsBlock = "";
-        if (!u.telegramId) {
-          sheetsBlock = `<div style="margin-top:5px;font-size:11px;color:var(--text3)">Agregá Telegram ID para conectar Sheets</div>`;
-        } else if (cache === null) {
-          // Aún sin datos — se cargará en background
-          sheetsBlock = `<div style="margin-top:5px;font-size:11px;color:var(--text3)">Verificando Google...</div>`;
-        } else if (!cache.connected) {
-          sheetsBlock = `
+      // Bloque inline de Google Sheets según estado cacheado
+      let sheetsBlock = "";
+      if (!u.telegramId) {
+        sheetsBlock = `<div style="margin-top:5px;font-size:11px;color:var(--text3)">Agregá Telegram ID para conectar Sheets</div>`;
+      } else if (cache === null) {
+        // Aún sin datos — se cargará en background
+        sheetsBlock = `<div style="margin-top:5px;font-size:11px;color:var(--text3)">Verificando Google...</div>`;
+      } else if (!cache.connected) {
+        sheetsBlock = `
             <div style="display:flex;align-items:center;gap:6px;margin-top:5px">
               <span style="font-size:11px;color:var(--text3)">○ Sin Google conectado</span>
               <button onclick="window.__connectGoogle('${u.id}')"
@@ -268,23 +313,23 @@ export function renderConfig() {
                 ${SHEETS_ICON_GRAY} Conectar Sheet
               </button>
             </div>`;
-        } else {
-          const sheetUrl = cache.sheetId
-            ? `https://docs.google.com/spreadsheets/d/${cache.sheetId}/edit`
-            : null;
-          sheetsBlock = `
+      } else {
+        const sheetUrl = cache.sheetId
+          ? `https://docs.google.com/spreadsheets/d/${cache.sheetId}/edit`
+          : null;
+        sheetsBlock = `
             <div style="display:flex;align-items:center;gap:6px;margin-top:5px">
               <span style="font-size:11px;color:#1D9E75">● Google conectado</span>
               ${sheetUrl
-                ? `<a href="${sheetUrl}" target="_blank"
+            ? `<a href="${sheetUrl}" target="_blank"
                      style="display:inline-flex;align-items:center;gap:4px;padding:2px 6px;font-size:10px;border-radius:6px;border:0.5px solid transparent;background:none;color:#1e7e45;font-family:inherit;cursor:pointer;text-decoration:none">
                      ${SHEETS_ICON_GREEN} Abrir Sheet ↗
                    </a>`
-                : `<span style="font-size:10px;color:var(--text3)">Sheet se creará con el primer gasto</span>`}
+            : `<span style="font-size:10px;color:var(--text3)">Sheet se creará con el primer gasto</span>`}
             </div>`;
-        }
+      }
 
-        return `
+      return `
           <div class="user-row">
             <div style="display:flex;align-items:center;gap:8px">
               <div class="avatar" style="width:28px;height:28px;font-size:12px">${u.name.charAt(0).toUpperCase()}</div>
@@ -304,14 +349,14 @@ export function renderConfig() {
                   style="font-size:10px">×</button>
               </div>
               ${cache?.connected
-                ? `<button onclick="window.__disconnectGoogle('${u.id}')"
+          ? `<button onclick="window.__disconnectGoogle('${u.id}')"
                      style="font-size:10px;padding:2px 6px;border-radius:6px;border:0.5px solid transparent;background:none;color:var(--text3);font-family:inherit;cursor:pointer">
                      Desconectar Google
                    </button>`
-                : ""}
+          : ""}
             </div>
           </div>`;
-      }).join("")
+    }).join("")
     : '<div class="empty" style="padding:16px">Sin usuarios. Agregá uno abajo.</div>';
 
   document.getElementById("active-user-picker").innerHTML = users.map((u) => `

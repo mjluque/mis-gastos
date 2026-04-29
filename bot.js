@@ -16,12 +16,12 @@
 
 require("dotenv").config();
 
-const express    = require("express");
-const bcrypt     = require("bcrypt");
-const jwt        = require("jsonwebtoken");
+const express = require("express");
+const bcrypt = require("bcrypt");
+const jwt = require("jsonwebtoken");
 
-const path       = require("path");
-const { Pool }   = require("pg");
+const path = require("path");
+const { Pool } = require("pg");
 const { google } = require("googleapis");
 
 const app = express();
@@ -29,14 +29,14 @@ app.use(express.json());
 
 // Servir index.html con SERVER_URL inyectada como variable global de JS.
 // Los demás assets (css, js) se sirven estáticos normalmente.
-const PUBLIC_DIR  = path.join(__dirname, "public");
-const fs          = require("fs");
+const PUBLIC_DIR = path.join(__dirname, "public");
+const fs = require("fs");
 
 app.get("/", (req, res) => {
   const html = fs.readFileSync(path.join(PUBLIC_DIR, "index.html"), "utf8");
   const serverUrl = WEBHOOK_URL || "";
   // Inyectar antes del cierre de </head>
-  const injected  = html.replace(
+  const injected = html.replace(
     "</head>",
     `<script>window.__SERVER_URL__ = ${JSON.stringify(serverUrl)};</script>\n</head>`
   );
@@ -46,18 +46,18 @@ app.get("/", (req, res) => {
 
 app.use(express.static(PUBLIC_DIR));
 
-const BOT_TOKEN          = process.env.BOT_TOKEN;
-const WEBHOOK_URL        = process.env.WEBHOOK_URL;
-const API_SECRET         = process.env.API_SECRET || "cambiar-esto";
-const ALLOWED_IDS        = process.env.ALLOWED_IDS
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const WEBHOOK_URL = process.env.WEBHOOK_URL;
+const API_SECRET = process.env.API_SECRET || "cambiar-esto";
+const ALLOWED_IDS = process.env.ALLOWED_IDS
   ? process.env.ALLOWED_IDS.split(",").map((id) => id.trim())
   : [];
-const ADMIN_TELEGRAM_ID    = process.env.ADMIN_TELEGRAM_ID || null;
-const ADMIN_PWD_HASH       = process.env.ADMIN_PASSWORD_HASH || null;
-const JWT_SECRET           = process.env.JWT_SECRET || "cambiar-jwt-secret";
-const OAUTH_CLIENT_ID      = process.env.GOOGLE_OAUTH_CLIENT_ID || null;
-const OAUTH_CLIENT_SECRET  = process.env.GOOGLE_OAUTH_CLIENT_SECRET || null;
-const OAUTH_CALLBACK       = `${process.env.WEBHOOK_URL || ""}/auth/google/callback`;
+const ADMIN_TELEGRAM_ID = process.env.ADMIN_TELEGRAM_ID || null;
+const ADMIN_PWD_HASH = process.env.ADMIN_PASSWORD_HASH || null;
+const JWT_SECRET = process.env.JWT_SECRET || "cambiar-jwt-secret";
+const OAUTH_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID || null;
+const OAUTH_CLIENT_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET || null;
+const OAUTH_CALLBACK = `${process.env.WEBHOOK_URL || ""}/auth/google/callback`;
 
 // ── PostgreSQL ────────────────────────────────────────────────────────────────
 
@@ -97,7 +97,7 @@ async function initDB() {
     `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS user_name     TEXT    DEFAULT NULL`,
     `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS is_recurring  BOOLEAN NOT NULL DEFAULT FALSE`,
   ]) {
-    await pool.query(sql).catch(() => {});
+    await pool.query(sql).catch(() => { });
   }
 
   await pool.query(`
@@ -183,8 +183,8 @@ async function saveExpense(userId, userName, groupId, scope, expense) {
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      ON CONFLICT (id) DO NOTHING`,
     [expense.id, String(userId), userName, groupId || null, scope,
-     expense.desc, expense.amt, expense.cat, expense.type, expense.date,
-     expense.is_recurring || false]
+    expense.desc, expense.amt, expense.cat, expense.type, expense.date,
+    expense.is_recurring || false]
   );
 }
 
@@ -200,8 +200,8 @@ async function updateExpense(userId, id, fields) {
          date         = COALESCE($5::date, date),
          is_recurring = COALESCE($6, is_recurring)
      WHERE id = $7 AND user_id = $8`,
-    [desc||null, amt||null, cat||null, type||null, date||null,
-     is_recurring !== undefined ? is_recurring : null, id, String(userId)]
+    [desc || null, amt || null, cat || null, type || null, date || null,
+    is_recurring !== undefined ? is_recurring : null, id, String(userId)]
   );
   return rowCount > 0;
 }
@@ -284,9 +284,9 @@ async function getAuthClientForUser(telegramId) {
   if (!oauth2) return null;
 
   oauth2.setCredentials({
-    access_token:  rows[0].access_token,
+    access_token: rows[0].access_token,
     refresh_token: rows[0].refresh_token,
-    expiry_date:   rows[0].expires_at ? new Date(rows[0].expires_at).getTime() : null,
+    expiry_date: rows[0].expires_at ? new Date(rows[0].expires_at).getTime() : null,
   });
 
   // Renovar si expiró o expira en menos de 5 minutos
@@ -312,13 +312,13 @@ async function getAuthClientForUser(telegramId) {
 
 // Crea el Sheet del usuario la primera vez que registra un gasto
 async function createUserSheet(auth, userName) {
-  const drive   = google.drive({ version: "v3", auth });
-  const sheets  = google.sheets({ version: "v4", auth });
+  const drive = google.drive({ version: "v3", auth });
+  const sheets = google.sheets({ version: "v4", auth });
 
   // Crear el archivo en Drive
   const file = await drive.files.create({
     requestBody: {
-      name:     `Mis gastos — ${userName}`,
+      name: `Mis gastos — ${userName}`,
       mimeType: "application/vnd.google-apps.spreadsheet",
     },
     fields: "id",
@@ -327,8 +327,8 @@ async function createUserSheet(auth, userName) {
 
   // Configurar hojas con encabezados
   const SHEET_HEADERS = {
-    "Gastos":          ["ID","Usuario","Fecha","Descripción","Monto","Categoría","Tipo","Contexto","Mes","Año"],
-    "Resumen_Mensual": ["Usuario","Año","Mes","Categoría","Total"],
+    "Gastos": ["ID", "Usuario", "Fecha", "Descripción", "Monto", "Categoría", "Tipo", "Contexto", "Mes", "Año"],
+    "Resumen_Mensual": ["Usuario", "Año", "Mes", "Categoría", "Total"],
   };
 
   // Renombrar la hoja por defecto a "Gastos"
@@ -386,10 +386,10 @@ async function appendToUserSheet(telegramId, userName, scope, groupId, expense) 
     }
   }
 
-  const date      = new Date(expense.date);
-  const year      = date.getFullYear();
-  const monthName = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"][date.getMonth()];
-  const ctx       = scope === "group" ? `Grupal (${groupId})` : "Personal";
+  const date = new Date(expense.date);
+  const year = date.getFullYear();
+  const monthName = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"][date.getMonth()];
+  const ctx = scope === "group" ? `Grupal (${groupId})` : "Personal";
 
   try {
     await sheets.spreadsheets.values.append({
@@ -403,9 +403,9 @@ async function appendToUserSheet(telegramId, userName, scope, groupId, expense) 
 }
 
 async function updateUserMonthlyResume(sheets, sheetId, userName, year, monthName, cat, amt) {
-  const res  = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: "Resumen_Mensual!A:E" }).catch(() => null);
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: "Resumen_Mensual!A:E" }).catch(() => null);
   const rows = res?.data?.values || [];
-  const idx  = rows.findIndex((r, i) =>
+  const idx = rows.findIndex((r, i) =>
     i > 0 && r[0] === userName && String(r[1]) === String(year) && r[2] === monthName && r[3] === cat
   );
   if (idx >= 0) {
@@ -436,7 +436,7 @@ async function syncAllExpensesToSheet(telegramId, userName) {
 
   const sheets = google.sheets({ version: "v4", auth });
   let { rows } = await pool.query("SELECT sheet_id FROM user_google_tokens WHERE telegram_id = $1", [String(telegramId)]);
-  let sheetId  = rows[0]?.sheet_id;
+  let sheetId = rows[0]?.sheet_id;
 
   if (!sheetId) {
     sheetId = await createUserSheet(auth, userName);
@@ -447,9 +447,9 @@ async function syncAllExpensesToSheet(telegramId, userName) {
   await sheets.spreadsheets.values.clear({ spreadsheetId: sheetId, range: "Gastos!A2:Z" });
   await sheets.spreadsheets.values.clear({ spreadsheetId: sheetId, range: "Resumen_Mensual!A2:Z" });
 
-  const MONTHS_ARR = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
-  const gastoRows  = expenses.map(e => {
-    const d   = new Date(e.date);
+  const MONTHS_ARR = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+  const gastoRows = expenses.map(e => {
+    const d = new Date(e.date);
     const ctx = e.scope === "group" ? `Grupal (${e.group_id})` : "Personal";
     return [e.id, userName, e.date, e.desc, e.amt, e.cat, e.type, ctx, MONTHS_ARR[d.getMonth()], d.getFullYear()];
   });
@@ -462,7 +462,7 @@ async function syncAllExpensesToSheet(telegramId, userName) {
   // Reconstruir resumen mensual
   const resumen = {};
   for (const e of expenses) {
-    const d   = new Date(e.date);
+    const d = new Date(e.date);
     const key = `${userName}|${d.getFullYear()}|${MONTHS_ARR[d.getMonth()]}|${e.cat}`;
     resumen[key] = (resumen[key] || 0) + e.amt;
   }
@@ -490,25 +490,25 @@ async function syncAllExpensesToSheet(telegramId, userName) {
 
 function fmt(n) { return "$" + Number(n).toLocaleString("es-AR"); }
 
-const MONTHS = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
-const CATEGORIES = ["Alimentación","Transporte","Vivienda","Salud","Entretenimiento","Ropa","Educación","Servicios","Restaurantes","Otros"];
+const MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+const CATEGORIES = ["Alimentación", "Transporte", "Vivienda", "Salud", "Entretenimiento", "Ropa", "Educación", "Servicios", "Restaurantes", "Otros"];
 
 function guessCategory(text) {
   const t = text.toLowerCase();
-  if (/super|mercado|carrefour|coto|jumbo|dia|verdura/.test(t))           return "Alimentación";
-  if (/sube|colectivo|tren|taxi|uber|remis|nafta|combustible/.test(t))    return "Transporte";
-  if (/alquiler|expensas|luz|edesur|gas|metrogas|agua|internet/.test(t))  return "Vivienda";
-  if (/farmacia|médico|medico|obra social|dentista|hospital/.test(t))     return "Salud";
-  if (/netflix|spotify|cine|teatro|disney|stream/.test(t))                return "Entretenimiento";
-  if (/ropa|zapatillas|calzado|indumentaria/.test(t))                     return "Ropa";
-  if (/curso|libro|universidad|colegio|escuela/.test(t))                  return "Educación";
-  if (/resto|restaurant|bar|café|cafe|pizza|sushi/.test(t))               return "Restaurantes";
+  if (/super|mercado|carrefour|coto|jumbo|dia|verdura/.test(t)) return "Alimentación";
+  if (/sube|colectivo|tren|taxi|uber|remis|nafta|combustible/.test(t)) return "Transporte";
+  if (/alquiler|expensas|luz|edesur|gas|metrogas|agua|internet/.test(t)) return "Vivienda";
+  if (/farmacia|médico|medico|obra social|dentista|hospital/.test(t)) return "Salud";
+  if (/netflix|spotify|cine|teatro|disney|stream/.test(t)) return "Entretenimiento";
+  if (/ropa|zapatillas|calzado|indumentaria/.test(t)) return "Ropa";
+  if (/curso|libro|universidad|colegio|escuela/.test(t)) return "Educación";
+  if (/resto|restaurant|bar|café|cafe|pizza|sushi/.test(t)) return "Restaurantes";
   return null;
 }
 
 function parseExpense(text) {
-  const TYPES  = ["fijo", "variable", "extraordinario"];
-  const parts  = text.trim().toLowerCase().replace(/^gasto\s+/, "").split(/\s+/);
+  const TYPES = ["fijo", "variable", "extraordinario"];
+  const parts = text.trim().toLowerCase().replace(/^gasto\s+/, "").split(/\s+/);
   const amount = parseFloat(parts[0].replace(",", ".").replace(/[^0-9.]/g, ""));
   if (!amount || isNaN(amount)) return null;
   let typeFound = "Variable", catFound = null, dateFound = null;
@@ -516,21 +516,21 @@ function parseExpense(text) {
   for (let i = 1; i < parts.length; i++) {
     const w = parts[i], wCap = w.charAt(0).toUpperCase() + w.slice(1);
     if (/^\d{1,2}\/\d{1,2}(\/\d{2,4})?$/.test(w)) {
-      const [d,m,y] = w.split("/");
-      const yr = y ? (y.length===2?"20"+y:y) : new Date().getFullYear();
-      dateFound = `${yr}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+      const [d, m, y] = w.split("/");
+      const yr = y ? (y.length === 2 ? "20" + y : y) : new Date().getFullYear();
+      dateFound = `${yr}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     } else if (/^\d{4}-\d{2}-\d{2}$/.test(w)) {
       dateFound = w;
     } else if (TYPES.includes(w)) {
       typeFound = wCap;
-    } else if (CATEGORIES.map(c=>c.toLowerCase()).includes(w)) {
-      catFound = CATEGORIES.find(c=>c.toLowerCase()===w);
+    } else if (CATEGORIES.map(c => c.toLowerCase()).includes(w)) {
+      catFound = CATEGORIES.find(c => c.toLowerCase() === w);
     } else {
       descParts.push(wCap);
     }
   }
   const desc = descParts.join(" ") || "Gasto";
-  return { id: Date.now(), desc, amt: amount, cat: catFound||guessCategory(desc)||"Otros", type: typeFound, date: dateFound||new Date().toISOString().split("T")[0] };
+  return { id: Date.now(), desc, amt: amount, cat: catFound || guessCategory(desc) || "Otros", type: typeFound, date: dateFound || new Date().toISOString().split("T")[0] };
 }
 
 // ── Telegram API ──────────────────────────────────────────────────────────────
@@ -554,11 +554,11 @@ async function cmdResumenPrivado(chatId, userId) {
     [String(userId), currentSqlMonth()]
   );
   if (!rows.length) return sendMessage(chatId, "📭 Sin gastos personales este mes.");
-  const total = rows.reduce((s,r)=>s+r.total,0);
-  const count = rows.reduce((s,r)=>s+parseInt(r.cnt),0);
+  const total = rows.reduce((s, r) => s + r.total, 0);
+  const count = rows.reduce((s, r) => s + parseInt(r.cnt), 0);
   sendMessage(chatId,
     `📊 *Mis gastos — ${MONTHS[now.getMonth()]} ${now.getFullYear()}*\n\n` +
-    rows.map(r=>`  • ${r.cat}: *${fmt(r.total)}*`).join("\n") +
+    rows.map(r => `  • ${r.cat}: *${fmt(r.total)}*`).join("\n") +
     `\n\n💰 *Total: ${fmt(total)}*\n_(${count} registros)_`
   );
 }
@@ -568,7 +568,7 @@ async function cmdListaPrivado(chatId, userId) {
   if (!rows.length) return sendMessage(chatId, "📭 Sin gastos personales este mes.");
   sendMessage(chatId,
     `📋 *Mis últimos gastos:*\n\n` +
-    rows.map(e=>`• \`${e.id}\` ${e.desc} — *${fmt(e.amt)}* _(${e.cat} · ${e.date})_`).join("\n") +
+    rows.map(e => `• \`${e.id}\` ${e.desc} — *${fmt(e.amt)}* _(${e.cat} · ${e.date})_`).join("\n") +
     `\n\n_Usá /editar para modificar uno_`
   );
 }
@@ -576,7 +576,7 @@ async function cmdListaPrivado(chatId, userId) {
 // ── Comandos grupales ─────────────────────────────────────────────────────────
 
 async function cmdResumenGrupal(chatId, groupId, groupName) {
-  const now  = new Date();
+  const now = new Date();
   const rows = await resumeByPerson(groupId);
   if (!rows.length) return sendMessage(chatId, "📭 Sin gastos grupales este mes.");
 
@@ -587,10 +587,10 @@ async function cmdResumenGrupal(chatId, groupId, groupName) {
     byPerson[r.user_name].cats.push(`    · ${r.cat}: ${fmt(r.total)}`);
   });
 
-  const totalGrupal = Object.values(byPerson).reduce((s,p)=>s+p.total,0);
+  const totalGrupal = Object.values(byPerson).reduce((s, p) => s + p.total, 0);
   const lines = Object.entries(byPerson)
-    .sort((a,b)=>b[1].total-a[1].total)
-    .map(([name,p])=>`👤 *${name}*: ${fmt(p.total)}\n${p.cats.join("\n")}`)
+    .sort((a, b) => b[1].total - a[1].total)
+    .map(([name, p]) => `👤 *${name}*: ${fmt(p.total)}\n${p.cats.join("\n")}`)
     .join("\n\n");
 
   sendMessage(chatId,
@@ -604,14 +604,14 @@ async function cmdListaGrupal(chatId, groupId) {
   if (!rows.length) return sendMessage(chatId, "📭 Sin gastos grupales este mes.");
   sendMessage(chatId,
     `📋 *Últimos gastos del grupo:*\n\n` +
-    rows.map(e=>`• \`${e.id}\` [${e.user_name}] ${e.desc} — *${fmt(e.amt)}* _(${e.cat})_`).join("\n")
+    rows.map(e => `• \`${e.id}\` [${e.user_name}] ${e.desc} — *${fmt(e.amt)}* _(${e.cat})_`).join("\n")
   );
 }
 
 // ── Comando /editar (solo en privado) ─────────────────────────────────────────
 
 async function cmdEditar(chatId, userId, text) {
-  const parts = text.replace(/^\/editar\s*/i,"").trim().split(/\s+/);
+  const parts = text.replace(/^\/editar\s*/i, "").trim().split(/\s+/);
   if (parts.length < 3 || !parts[0]) {
     return sendMessage(chatId,
       `✏️ *Cómo editar un gasto:*\n\n\`/editar [id] [campo] [valor]\`\n\n` +
@@ -627,39 +627,39 @@ async function cmdEditar(chatId, userId, text) {
   const fields = {};
   switch (field) {
     case "monto": case "amt": {
-      const n = parseFloat(value.replace(",","."));
-      if (!n||isNaN(n)) return sendMessage(chatId,"❌ Monto inválido.");
-      fields.amt=n; break;
+      const n = parseFloat(value.replace(",", "."));
+      if (!n || isNaN(n)) return sendMessage(chatId, "❌ Monto inválido.");
+      fields.amt = n; break;
     }
     case "desc": case "descripcion": case "descripción": {
-      if (!value) return sendMessage(chatId,"❌ Escribí la nueva descripción.");
-      fields.desc=value.charAt(0).toUpperCase()+value.slice(1); break;
+      if (!value) return sendMessage(chatId, "❌ Escribí la nueva descripción.");
+      fields.desc = value.charAt(0).toUpperCase() + value.slice(1); break;
     }
     case "categoria": case "categoría": case "cat": {
-      const cat=CATEGORIES.find(c=>c.toLowerCase()===value.toLowerCase());
-      if (!cat) return sendMessage(chatId,`❌ Categoría inválida.\nOpciones: ${CATEGORIES.join(", ")}`);
-      fields.cat=cat; break;
+      const cat = CATEGORIES.find(c => c.toLowerCase() === value.toLowerCase());
+      if (!cat) return sendMessage(chatId, `❌ Categoría inválida.\nOpciones: ${CATEGORIES.join(", ")}`);
+      fields.cat = cat; break;
     }
     case "tipo": case "type": {
-      const t={fijo:"Fijo",variable:"Variable",extraordinario:"Extraordinario"}[value.toLowerCase()];
-      if (!t) return sendMessage(chatId,"❌ Tipo inválido. Opciones: fijo, variable, extraordinario");
-      fields.type=t; break;
+      const t = { fijo: "Fijo", variable: "Variable", extraordinario: "Extraordinario" }[value.toLowerCase()];
+      if (!t) return sendMessage(chatId, "❌ Tipo inválido. Opciones: fijo, variable, extraordinario");
+      fields.type = t; break;
     }
     case "fecha": case "date": {
-      let df=null;
-      if (/^\d{1,2}\/\d{1,2}(\/\d{2,4})?$/.test(value)){
-        const[d,m,y]=value.split("/");
-        const yr=y?(y.length===2?"20"+y:y):new Date().getFullYear();
-        df=`${yr}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
-      } else if(/^\d{4}-\d{2}-\d{2}$/.test(value)) df=value;
-      if (!df) return sendMessage(chatId,"❌ Fecha inválida. Usá DD/MM o DD/MM/YYYY.");
-      fields.date=df; break;
+      let df = null;
+      if (/^\d{1,2}\/\d{1,2}(\/\d{2,4})?$/.test(value)) {
+        const [d, m, y] = value.split("/");
+        const yr = y ? (y.length === 2 ? "20" + y : y) : new Date().getFullYear();
+        df = `${yr}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      } else if (/^\d{4}-\d{2}-\d{2}$/.test(value)) df = value;
+      if (!df) return sendMessage(chatId, "❌ Fecha inválida. Usá DD/MM o DD/MM/YYYY.");
+      fields.date = df; break;
     }
-    default: return sendMessage(chatId,"❌ Campo inválido. Opciones: desc, monto, categoria, tipo, fecha");
+    default: return sendMessage(chatId, "❌ Campo inválido. Opciones: desc, monto, categoria, tipo, fecha");
   }
   const ok = await updateExpense(userId, id, fields);
-  if (!ok) return sendMessage(chatId,"❌ No encontré ese gasto o no te pertenece.");
-  sendMessage(chatId,`✅ *Gasto actualizado.*\n_Usá /lista para verificar._`);
+  if (!ok) return sendMessage(chatId, "❌ No encontré ese gasto o no te pertenece.");
+  sendMessage(chatId, `✅ *Gasto actualizado.*\n_Usá /lista para verificar._`);
 }
 
 // ── Comando /ayuda ────────────────────────────────────────────────────────────
@@ -674,7 +674,7 @@ async function cmdAyuda(chatId, userId, isGroup) {
     `*Ejemplos:*\n\`gasto 2800 supermercado\`\n\`gasto 15000 alquiler vivienda fijo\`\n\`gasto 500 cafe 20/04\`\n\n` +
     `*Categorías:* ${CATEGORIES.join(", ")}\n*Tipos:* fijo · variable · extraordinario\n\n` +
     `*Comandos:* /resumen · /lista · /editar · /ayuda\n\n` +
-    `🔑 *Tu ID:* \`${userId}\`\n🌐 *App:* ${WEBHOOK_URL||"sin configurar"}`
+    `🔑 *Tu ID:* \`${userId}\`\n🌐 *App:* ${WEBHOOK_URL || "sin configurar"}`
   );
 }
 
@@ -685,22 +685,22 @@ app.post("/webhook", async (req, res) => {
   const update = req.body;
   if (!update.message) return;
 
-  const msg      = update.message;
-  const chatId   = msg.chat.id;
-  const userId   = String(msg.from.id);
-  const text     = (msg.text || "").trim();
+  const msg = update.message;
+  const chatId = msg.chat.id;
+  const userId = String(msg.from.id);
+  const text = (msg.text || "").trim();
   const userName = [msg.from.first_name, msg.from.last_name].filter(Boolean).join(" ") || `User${userId}`;
-  const isGroup  = ["group","supergroup"].includes(msg.chat.type);
-  const groupId  = isGroup ? String(msg.chat.id) : null;
-  const groupName = isGroup ? (msg.chat.title||"Grupo") : null;
-  const scope    = isGroup ? "group" : "private";
+  const isGroup = ["group", "supergroup"].includes(msg.chat.type);
+  const groupId = isGroup ? String(msg.chat.id) : null;
+  const groupName = isGroup ? (msg.chat.title || "Grupo") : null;
+  const scope = isGroup ? "group" : "private";
 
   if (ALLOWED_IDS.length > 0 && !ALLOWED_IDS.includes(userId))
     return sendMessage(chatId, "⛔ No estás autorizado.");
 
   if (text.startsWith("/resumen")) return isGroup ? cmdResumenGrupal(chatId, groupId, groupName) : cmdResumenPrivado(chatId, userId);
-  if (text.startsWith("/lista"))   return isGroup ? cmdListaGrupal(chatId, groupId) : cmdListaPrivado(chatId, userId);
-  if (text.startsWith("/editar"))  return isGroup
+  if (text.startsWith("/lista")) return isGroup ? cmdListaGrupal(chatId, groupId) : cmdListaPrivado(chatId, userId);
+  if (text.startsWith("/editar")) return isGroup
     ? sendMessage(chatId, "✏️ El comando /editar solo está disponible en chat privado con el bot.")
     : cmdEditar(chatId, userId, text);
   if (text.startsWith("/start") || text.startsWith("/ayuda")) return cmdAyuda(chatId, userId, isGroup);
@@ -714,11 +714,11 @@ app.post("/webhook", async (req, res) => {
     appendToUserSheet(userId, userName, scope, groupId, expense).catch(console.error);
 
     const total = isGroup ? await monthTotalGroup(groupId) : await monthTotalPrivate(userId);
-    const icon  = isGroup ? "👥" : "👤";
+    const icon = isGroup ? "👥" : "👤";
     return sendMessage(chatId,
-      `✅ *Guardado* ${icon}${OAUTH_CLIENT_ID?" 📊":""}\n\n` +
+      `✅ *Guardado* ${icon}${OAUTH_CLIENT_ID ? " 📊" : ""}\n\n` +
       `📝 ${expense.desc}\n💵 *${fmt(expense.amt)}*\n🏷️ ${expense.cat} · ${expense.type}\n📅 ${expense.date}\n\n` +
-      `_Total ${isGroup?"del grupo":"personal"} este mes: ${fmt(total)}_`
+      `_Total ${isGroup ? "del grupo" : "personal"} este mes: ${fmt(total)}_`
     );
   }
 });
@@ -845,10 +845,10 @@ app.get("/api/admin/stats", requireAdmin, async (req, res) => {
       pool.query("SELECT COUNT(DISTINCT group_id) AS total FROM expenses WHERE scope='group'"),
     ]);
     res.json({
-      users:    parseInt(users.rows[0].total),
+      users: parseInt(users.rows[0].total),
       expenses: parseInt(expenses.rows[0].total),
-      total:    expenses.rows[0].sum || 0,
-      groups:   parseInt(groups.rows[0].total),
+      total: expenses.rows[0].sum || 0,
+      groups: parseInt(groups.rows[0].total),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -876,6 +876,91 @@ app.get("/api/admin/config", requireAdmin, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Gestión de usuarios desde el admin ───────────────────────────────────────
+
+// Eliminar usuario y todos sus datos
+app.delete("/api/admin/users/:telegramId", requireAdmin, async (req, res) => {
+  const safeId = String(req.params.telegramId).replace(/[^0-9]/g, "");
+  try {
+    await pool.query("DELETE FROM expenses WHERE user_id = $1", [safeId]);
+    await pool.query("DELETE FROM app_config WHERE telegram_id = $1", [safeId]);
+    await pool.query("DELETE FROM user_google_tokens WHERE telegram_id = $1", [safeId]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Bloquear/desbloquear usuario (agregar/quitar de ALLOWED_IDS en config)
+app.patch("/api/admin/users/:telegramId/block", requireAdmin, async (req, res) => {
+  const safeId = String(req.params.telegramId).replace(/[^0-9]/g, "");
+  const { blocked } = req.body;
+  try {
+    // Guardar lista de bloqueados en app_config del admin
+    const { rows } = await pool.query(
+      "SELECT config FROM app_config WHERE telegram_id = '__admin__'"
+    );
+    const cfg = rows[0]?.config || {};
+    const blocked_ids = new Set(cfg.blocked_ids || []);
+    if (blocked) blocked_ids.add(safeId);
+    else blocked_ids.delete(safeId);
+    cfg.blocked_ids = [...blocked_ids];
+    await pool.query(
+      `INSERT INTO app_config (telegram_id, config, updated_at)
+       VALUES ('__admin__', $1, NOW())
+       ON CONFLICT (telegram_id) DO UPDATE SET config = $1, updated_at = NOW()`,
+      [JSON.stringify(cfg)]
+    );
+    res.json({ ok: true, blocked });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Gestión de grupos desde el admin ─────────────────────────────────────────
+
+// Listar grupos (extraídos de los gastos grupales)
+app.get("/api/admin/groups", requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT group_id, COUNT(DISTINCT user_id) AS members,
+              COUNT(*) AS expenses, SUM(amount)::float AS total
+       FROM expenses WHERE scope = 'group' AND group_id IS NOT NULL
+       GROUP BY group_id ORDER BY total DESC`
+    );
+    // Enriquecer con nombres de la config del admin
+    const { rows: cfgRows } = await pool.query(
+      "SELECT config FROM app_config WHERE telegram_id = '__admin__'"
+    );
+    const groupNames = cfgRows[0]?.config?.group_names || {};
+    res.json(rows.map(r => ({
+      group_id: r.group_id,
+      name: groupNames[r.group_id] || `Grupo ${r.group_id}`,
+      members: parseInt(r.members),
+      expenses: parseInt(r.expenses),
+      total: r.total,
+    })));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Actualizar nombre de un grupo
+app.patch("/api/admin/groups/:groupId", requireAdmin, async (req, res) => {
+  const groupId = String(req.params.groupId).replace(/[^0-9\-]/g, "");
+  const { name } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: "Nombre requerido" });
+  try {
+    const { rows } = await pool.query(
+      "SELECT config FROM app_config WHERE telegram_id = '__admin__'"
+    );
+    const cfg = rows[0]?.config || {};
+    if (!cfg.group_names) cfg.group_names = {};
+    cfg.group_names[groupId] = name.trim();
+    await pool.query(
+      `INSERT INTO app_config (telegram_id, config, updated_at)
+       VALUES ('__admin__', $1, NOW())
+       ON CONFLICT (telegram_id) DO UPDATE SET config = $1, updated_at = NOW()`,
+      [JSON.stringify(cfg)]
+    );
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── API para app web ──────────────────────────────────────────────────────────
 
 // Info pública del servidor.
@@ -889,7 +974,7 @@ app.get("/api/info", (req, res) => {
   );
   res.json({
     serverUrl: WEBHOOK_URL || null,
-    secret:    authorized ? API_SECRET : null,
+    secret: authorized ? API_SECRET : null,
     authorized,
   });
 });
@@ -897,10 +982,10 @@ app.get("/api/info", (req, res) => {
 // Actualizar nombre del usuario
 app.patch("/api/user", async (req, res) => {
   const { telegramId, secret } = req.query;
-  if (secret !== API_SECRET)  return res.status(401).json({ error: "No autorizado" });
-  if (!telegramId)            return res.status(400).json({ error: "telegramId requerido" });
+  if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
+  if (!telegramId) return res.status(400).json({ error: "telegramId requerido" });
   const { name } = req.body;
-  if (!name?.trim())          return res.status(400).json({ error: "Nombre requerido" });
+  if (!name?.trim()) return res.status(400).json({ error: "Nombre requerido" });
   const safeId = String(telegramId).replace(/[^0-9]/g, "");
   try {
     // Actualizar user_name en todos sus gastos
@@ -915,8 +1000,8 @@ app.patch("/api/user", async (req, res) => {
 // Obtener grupos a los que pertenece un usuario (tiene gastos grupales)
 app.get("/api/user/groups", async (req, res) => {
   const { telegramId, secret } = req.query;
-  if (secret !== API_SECRET)  return res.status(401).json({ error: "No autorizado" });
-  if (!telegramId)            return res.status(400).json({ error: "telegramId requerido" });
+  if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
+  if (!telegramId) return res.status(400).json({ error: "telegramId requerido" });
   const safeId = String(telegramId).replace(/[^0-9]/g, "");
   try {
     const { rows } = await pool.query(
@@ -931,8 +1016,8 @@ app.get("/api/user/groups", async (req, res) => {
 // Configuración por usuario de Telegram
 app.get("/api/config", async (req, res) => {
   const { telegramId, secret } = req.query;
-  if (secret !== API_SECRET)  return res.status(401).json({ error: "No autorizado" });
-  if (!telegramId)            return res.status(400).json({ error: "telegramId requerido" });
+  if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
+  if (!telegramId) return res.status(400).json({ error: "telegramId requerido" });
   const safeId = String(telegramId).replace(/[^0-9]/g, "");
   try {
     const { rows } = await pool.query(
@@ -945,8 +1030,8 @@ app.get("/api/config", async (req, res) => {
 
 app.post("/api/config", async (req, res) => {
   const { telegramId, secret } = req.query;
-  if (secret !== API_SECRET)  return res.status(401).json({ error: "No autorizado" });
-  if (!telegramId)            return res.status(400).json({ error: "telegramId requerido" });
+  if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
+  if (!telegramId) return res.status(400).json({ error: "telegramId requerido" });
   const safeId = String(telegramId).replace(/[^0-9]/g, "");
   try {
     await pool.query(
@@ -964,7 +1049,7 @@ app.post("/api/config", async (req, res) => {
 app.get("/api/gastos", async (req, res) => {
   const { userId, secret } = req.query;
   if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
-  if (!userId)               return res.status(400).json({ error: "userId requerido" });
+  if (!userId) return res.status(400).json({ error: "userId requerido" });
   const safeId = String(userId).replace(/[^0-9]/g, "");
   if (ALLOWED_IDS.length > 0 && !ALLOWED_IDS.includes(safeId))
     return res.status(403).json({ error: "Usuario no autorizado" });
@@ -994,9 +1079,9 @@ app.get("/api/gastos/grupo/:groupId/resumen", async (req, res) => {
 app.put("/api/gastos/:id", async (req, res) => {
   const { secret, userId } = req.query;
   if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
-  if (!userId)               return res.status(400).json({ error: "userId requerido" });
+  if (!userId) return res.status(400).json({ error: "userId requerido" });
   const safeId = String(userId).replace(/[^0-9]/g, "");
-  const id     = parseInt(req.params.id);
+  const id = parseInt(req.params.id);
   if (isNaN(id)) return res.status(400).json({ error: "ID inválido" });
   try {
     const ok = await updateExpense(safeId, id, req.body);
@@ -1009,9 +1094,9 @@ app.put("/api/gastos/:id", async (req, res) => {
 app.delete("/api/gastos/:id", async (req, res) => {
   const { secret, userId } = req.query;
   if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
-  if (!userId)               return res.status(400).json({ error: "userId requerido" });
+  if (!userId) return res.status(400).json({ error: "userId requerido" });
   const safeId = String(userId).replace(/[^0-9]/g, "");
-  const id     = parseInt(req.params.id);
+  const id = parseInt(req.params.id);
   if (isNaN(id)) return res.status(400).json({ error: "ID inválido" });
   try {
     const { rowCount } = await pool.query(
@@ -1034,7 +1119,7 @@ app.get("/auth/google", (req, res) => {
 
   const url = oauth2.generateAuthUrl({
     access_type: "offline",
-    prompt:      "consent",  // forzar para obtener siempre refresh_token
+    prompt: "consent",  // forzar para obtener siempre refresh_token
     scope: [
       "https://www.googleapis.com/auth/spreadsheets",
       "https://www.googleapis.com/auth/drive.file",
@@ -1114,9 +1199,9 @@ app.post("/api/sheets/sync", async (req, res) => {
 app.patch("/api/gastos/:id/recurring", async (req, res) => {
   const { secret, userId } = req.query;
   if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
-  if (!userId)               return res.status(400).json({ error: "userId requerido" });
+  if (!userId) return res.status(400).json({ error: "userId requerido" });
   const safeId = String(userId).replace(/[^0-9]/g, "");
-  const id     = parseInt(req.params.id);
+  const id = parseInt(req.params.id);
   if (isNaN(id)) return res.status(400).json({ error: "ID inválido" });
   try {
     const { rows } = await pool.query(
@@ -1137,8 +1222,8 @@ app.patch("/api/gastos/:id/recurring", async (req, res) => {
 app.get("/api/gastos/recurrentes", async (req, res) => {
   const { secret, userId } = req.query;
   if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
-  if (!userId)               return res.status(400).json({ error: "userId requerido" });
-  const safeId   = String(userId).replace(/[^0-9]/g, "");
+  if (!userId) return res.status(400).json({ error: "userId requerido" });
+  const safeId = String(userId).replace(/[^0-9]/g, "");
   const sqlMonth = currentSqlMonth();
   try {
     // Obtener todos los gastos marcados como recurrentes del usuario
@@ -1161,7 +1246,7 @@ app.get("/api/gastos/recurrentes", async (req, res) => {
       [safeId, sqlMonth]
     );
     const alreadyLoaded = new Set(thisMonth.map(r => `${r.description}|${r.category}`));
-    const suggestions   = recurring.filter(r => !alreadyLoaded.has(`${r.desc}|${r.cat}`));
+    const suggestions = recurring.filter(r => !alreadyLoaded.has(`${r.desc}|${r.cat}`));
     res.json(suggestions);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1169,7 +1254,7 @@ app.get("/api/gastos/recurrentes", async (req, res) => {
 app.get("/api/health", async (req, res) => {
   try {
     await pool.query("SELECT 1");
-    res.json({ ok: true, db: "postgres", sheets: !!OAUTH_CLIENT_ID&&!!OAUTH_CLIENT_SECRET, webhook: !!BOT_TOKEN, ts: new Date().toISOString() });
+    res.json({ ok: true, db: "postgres", sheets: !!OAUTH_CLIENT_ID && !!OAUTH_CLIENT_SECRET, webhook: !!BOT_TOKEN, ts: new Date().toISOString() });
   } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
@@ -1178,7 +1263,7 @@ app.get("/api/health", async (req, res) => {
 async function registerWebhook() {
   if (!BOT_TOKEN || !WEBHOOK_URL) return;
   const { default: fetch } = await import("node-fetch");
-  const res  = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/setWebhook`, {
+  const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/setWebhook`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ url: `${WEBHOOK_URL}/webhook` }),
   });
