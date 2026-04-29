@@ -231,14 +231,16 @@ export function renderCompare() {
 const SHEETS_ICON_GREEN = `<svg width="12" height="12" viewBox="0 0 16 16" style="flex-shrink:0"><rect width="16" height="16" rx="2" fill="#1e7e45"/><rect x="3" y="4.5" width="10" height="1.3" rx="0.4" fill="white"/><rect x="3" y="7.3" width="10" height="1.3" rx="0.4" fill="white"/><rect x="3" y="10.1" width="6.5" height="1.3" rx="0.4" fill="white"/></svg>`;
 const SHEETS_ICON_GRAY  = `<svg width="12" height="12" viewBox="0 0 16 16" style="flex-shrink:0"><rect width="16" height="16" rx="2" fill="#b4b2a9"/><rect x="3" y="4.5" width="10" height="1.3" rx="0.4" fill="white"/><rect x="3" y="7.3" width="10" height="1.3" rx="0.4" fill="white"/><rect x="3" y="10.1" width="6.5" height="1.3" rx="0.4" fill="white"/></svg>`;
 
-// Cache de estados de Sheets por userId para no re-fetchear en cada render
-export const sheetsStatusCache = {};
+// Cache de estados de Sheets — compartido via window para evitar imports circulares
+// sheets.js escribe en window.__sheetsStatusCache
+// renders.js lo lee desde window.__sheetsStatusCache
+function getSheetsCache() { return window.__sheetsStatusCache || {}; }
 
 export function renderConfig() {
   document.getElementById("user-list").innerHTML = users.length
     ? users.map((u) => {
         const isActive  = activeId === u.id;
-        const cache     = sheetsStatusCache[u.id] || null;
+        const cache     = getSheetsCache()[u.id] || null;
 
         // Bloque inline de Google Sheets según estado cacheado
         let sheetsBlock = "";
