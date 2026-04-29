@@ -5,6 +5,7 @@ DEV_LOCAL_MAC.md
 migrate_v6.sql
 migrate_v10.sql
 migrate_v13.sql
+migrate_v16.sql
 generate-hash.js
 
 

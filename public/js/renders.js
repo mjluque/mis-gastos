@@ -139,12 +139,22 @@ export function renderList() {
   else if (sort === "amt-asc") filtered.sort((a, b) => a.amt - b.amt);
   else filtered.sort((a, b) => b.date.localeCompare(a.date));
 
+  const recurIcon = (id, isRecurring) => `
+    <button onclick="window.__toggleRecurring(${id}, this)" title="${isRecurring ? "Quitar recurrente" : "Marcar como recurrente"}"
+      style="background:none;border:none;cursor:pointer;padding:4px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M13 8A5 5 0 1 1 8 3" stroke="${isRecurring ? "#1D9E75" : "var(--text3)"}" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M8 1.5L10.5 4L8 6.5" stroke="${isRecurring ? "#1D9E75" : "var(--text3)"}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>`;
+
   document.getElementById("expense-list").innerHTML = filtered.length
     ? filtered.map((e) => `
         <div class="expense-row">
           <div class="cat-dot" style="background:${CAT_COLORS[e.cat] || "#888"}"></div>
           <div class="expense-desc">${e.desc}<div class="expense-sub">${e.cat} · ${e.type} · ${e.date}</div></div>
           <div class="expense-amt">${fmt(e.amt)}</div>
+          ${recurIcon(e.id, e.is_recurring)}
           <button class="btn btn-sm btn-edit"
             data-id="${e.id}"
             data-desc="${(e.desc || "").replace(/"/g, "&quot;")}"

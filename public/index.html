@@ -72,6 +72,17 @@
 
   <!-- ── Agregar ───────────────────────────────────────────────────────────── -->
   <div id="screen-agregar" class="screen">
+
+    <!-- Sugerencias recurrentes (se muestra solo si hay pendientes) -->
+    <div id="recurring-suggestions" style="display:none" class="card" style="background:var(--bg2)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div>
+          <div style="font-size:13px;font-weight:500;color:var(--text)">Gastos recurrentes</div>
+          <div style="font-size:11px;color:var(--text2);margin-top:2px">Pendientes de este mes · Tocá uno para pre-cargarlo</div>
+        </div>
+      </div>
+      <div id="suggestions-list"></div>
+    </div>
     <div class="card">
       <div class="section-title">Nuevo gasto</div>
       <div class="form-row">
@@ -98,6 +109,12 @@
       <div class="form-group">
         <label class="form-label">Fecha</label>
         <input type="date" id="new-date" style="width:auto">
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:8px 10px;background:var(--bg2);border-radius:var(--radius)">
+        <input type="checkbox" id="new-recurring" style="width:auto">
+        <label for="new-recurring" style="font-size:12px;color:var(--text);cursor:pointer;margin:0">
+          Marcar como recurrente — se sugerirá cada mes
+        </label>
       </div>
       <button class="btn btn-primary" onclick="window.__addExpense()" style="width:100%">Guardar gasto</button>
     </div>

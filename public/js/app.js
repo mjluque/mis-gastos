@@ -66,6 +66,7 @@ export function switchTab(name) {
   const screen = document.getElementById("screen-" + name);
   if (screen) screen.classList.add("active");
   if (name === "resumen")  renderResumen(currentView, activeGroupId);
+  if (name === "agregar")  loadRecurringSuggestions();
   if (name === "gastos")   renderList();
   if (name === "comparar") renderCompare();
   if (name === "account")  renderAccount();
@@ -186,23 +187,137 @@ export function deleteGroup(uid) {
   refresh();
 }
 
+// ── Gastos recurrentes — sugerencias ─────────────────────────────────────────
+
+const CAT_COLORS_LOCAL = {
+  "Alimentación":"#378ADD","Transporte":"#1D9E75","Vivienda":"#D85A30",
+  "Salud":"#D4537E","Entretenimiento":"#534AB7","Ropa":"#BA7517",
+  "Educación":"#639922","Servicios":"#888780","Restaurantes":"#185FA5","Otros":"#3C3489",
+};
+
+export async function loadRecurringSuggestions() {
+  const container = document.getElementById("recurring-suggestions");
+  const list      = document.getElementById("suggestions-list");
+  if (!container || !list) return;
+
+  const u = activeUser();
+  if (!u?.telegramId || !serverCfg.url || !serverCfg.secret) {
+    container.style.display = "none";
+    return;
+  }
+
+  try {
+    const res = await fetch(
+      `${serverCfg.url}/api/gastos/recurrentes?userId=${u.telegramId}&secret=${encodeURIComponent(serverCfg.secret)}`
+    );
+    if (!res.ok) { container.style.display = "none"; return; }
+    const suggestions = await res.json();
+
+    if (!suggestions.length) { container.style.display = "none"; return; }
+
+    container.style.display = "block";
+    list.innerHTML = suggestions.map((s, i) => `
+      <div onclick="window.__loadSuggestion(${i})"
+        id="suggest-${i}"
+        style="display:flex;align-items:center;justify-content:space-between;
+               padding:10px 12px;border-radius:var(--radius);
+               background:var(--bg);border:0.5px solid var(--border);
+               cursor:pointer;margin-bottom:8px;transition:border-color .15s"
+        onmouseover="this.style.borderColor='var(--border2)'"
+        onmouseout="this.style.borderColor='var(--border)'">
+        <div style="display:flex;align-items:center;gap:9px">
+          <div style="width:8px;height:8px;border-radius:50%;background:${CAT_COLORS_LOCAL[s.cat]||"#888"};flex-shrink:0"></div>
+          <div>
+            <div style="font-size:13px;font-weight:500;color:var(--text)">${s.desc}</div>
+            <div style="font-size:11px;color:var(--text2)">${s.cat} · ${s.type}</div>
+          </div>
+        </div>
+        <div style="font-size:13px;font-weight:500;color:var(--text);white-space:nowrap">
+          $${Number(s.amt).toLocaleString("es-AR",{maximumFractionDigits:0})}
+        </div>
+      </div>`).join("");
+
+    // Guardar sugerencias en window para acceso desde loadSuggestion
+    window.__currentSuggestions = suggestions;
+
+  } catch { container.style.display = "none"; }
+}
+
+export function loadSuggestion(index) {
+  const suggestions = window.__currentSuggestions || [];
+  const s = suggestions[index];
+  if (!s) return;
+
+  // Resaltar la tarjeta seleccionada
+  document.querySelectorAll("[id^='suggest-']").forEach((el, i) => {
+    el.style.outline = i === index ? "1.5px solid var(--text)" : "none";
+  });
+
+  // Pre-cargar el formulario
+  document.getElementById("new-desc").value = s.desc;
+  document.getElementById("new-amt").value  = s.amt;
+  document.getElementById("new-cat").value  = s.cat;
+  document.getElementById("new-type").value = s.type;
+  if (document.getElementById("new-recurring"))
+    document.getElementById("new-recurring").checked = true;
+  document.getElementById("new-amt").focus();
+}
+
+// Toggle recurrente desde la Lista
+export async function toggleRecurring(expenseId, btnEl) {
+  const u = activeUser();
+
+  // Actualizar visual inmediatamente (optimistic UI)
+  const svg   = btnEl.querySelector("svg");
+  const paths = svg.querySelectorAll("path");
+  const isOn  = paths[0].getAttribute("stroke") === "#1D9E75";
+  const newColor = isOn ? "var(--text3)" : "#1D9E75";
+  paths.forEach(p => p.setAttribute("stroke", newColor));
+
+  // Actualizar en localStorage
+  const data = curData();
+  for (const key of Object.keys(data)) {
+    const exp = data[key].find(e => String(e.id) === String(expenseId));
+    if (exp) { exp.is_recurring = !isOn; break; }
+  }
+  saveUserData(activeId, data);
+
+  // Actualizar en servidor
+  if (u?.telegramId && serverCfg.url && serverCfg.secret) {
+    try {
+      await fetch(
+        `${serverCfg.url}/api/gastos/${expenseId}/recurring?userId=${u.telegramId}&secret=${encodeURIComponent(serverCfg.secret)}`,
+        { method: "PATCH" }
+      );
+    } catch (e) { console.warn("Error actualizando recurrente:", e.message); }
+  }
+
+  toast(!isOn ? "✓ Marcado como recurrente" : "Quitado de recurrentes");
+}
+
 // ── Gastos ────────────────────────────────────────────────────────────────────
 
 export function addExpense() {
-  if (!activeId) { toast("Primero agregá un usuario en Config", false); return; }
-  const desc = document.getElementById("new-desc").value.trim();
-  const amt  = parseFloat(document.getElementById("new-amt").value);
-  const cat  = document.getElementById("new-cat").value;
-  const type = document.getElementById("new-type").value;
-  const date = document.getElementById("new-date").value;
+  if (!activeId) { toast("Primero agregá tu usuario en Mi cuenta", false); return; }
+  const desc        = document.getElementById("new-desc").value.trim();
+  const amt         = parseFloat(document.getElementById("new-amt").value);
+  const cat         = document.getElementById("new-cat").value;
+  const type        = document.getElementById("new-type").value;
+  const date        = document.getElementById("new-date").value;
+  const isRecurring = document.getElementById("new-recurring")?.checked || false;
   if (!desc || !amt || amt <= 0) { toast("Completá descripción y monto", false); return; }
   const data = curData();
   const key  = curKey();
   if (!data[key]) data[key] = [];
-  data[key].push({ id: Date.now(), desc, amt, cat, type, date });
+  const expense = { id: Date.now(), desc, amt, cat, type, date, is_recurring: isRecurring };
+  data[key].push(expense);
   saveUserData(activeId, data);
   document.getElementById("new-desc").value = "";
   document.getElementById("new-amt").value  = "";
+  if (document.getElementById("new-recurring"))
+    document.getElementById("new-recurring").checked = false;
+  // Si fue marcado como recurrente, removerlo de sugerencias si estaba
+  if (isRecurring) loadRecurringSuggestions();
   toast("✓ Gasto guardado");
   renderResumen(currentView, activeGroupId);
 }
@@ -269,6 +384,8 @@ window.__syncToSheet       = (userId) => syncToSheet(userId);
 window.__saveAccountName   = saveAccountName;
 window.__saveTelegramId    = saveTelegramId;
 window.__syncNowAccount    = () => syncNow(false);
+window.__loadSuggestion    = loadSuggestion;
+window.__toggleRecurring   = (id, btn) => toggleRecurring(id, btn);
 
 // ── Admin ──────────────────────────────────────────────────────────────────────
 window.__adminLoginFromUI = async () => {

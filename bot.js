@@ -71,17 +71,18 @@ async function initDB() {
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS expenses (
-      id          BIGINT      PRIMARY KEY,
-      user_id     TEXT        NOT NULL,
-      user_name   TEXT,
-      group_id    TEXT        DEFAULT NULL,
-      scope       TEXT        NOT NULL DEFAULT 'private',
-      description TEXT        NOT NULL,
-      amount      NUMERIC     NOT NULL,
-      category    TEXT        NOT NULL,
-      type        TEXT        NOT NULL DEFAULT 'Variable',
-      date        DATE        NOT NULL,
-      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      id           BIGINT      PRIMARY KEY,
+      user_id      TEXT        NOT NULL,
+      user_name    TEXT,
+      group_id     TEXT        DEFAULT NULL,
+      scope        TEXT        NOT NULL DEFAULT 'private',
+      description  TEXT        NOT NULL,
+      amount       NUMERIC     NOT NULL,
+      category     TEXT        NOT NULL,
+      type         TEXT        NOT NULL DEFAULT 'Variable',
+      date         DATE        NOT NULL,
+      is_recurring BOOLEAN     NOT NULL DEFAULT FALSE,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS expenses_user_id_idx  ON expenses (user_id)`);
@@ -91,9 +92,10 @@ async function initDB() {
 
   // Migración segura: agrega columnas si no existen en tablas preexistentes
   for (const sql of [
-    `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS group_id  TEXT DEFAULT NULL`,
-    `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS scope     TEXT NOT NULL DEFAULT 'private'`,
-    `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS user_name TEXT DEFAULT NULL`,
+    `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS group_id      TEXT    DEFAULT NULL`,
+    `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS scope         TEXT    NOT NULL DEFAULT 'private'`,
+    `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS user_name     TEXT    DEFAULT NULL`,
+    `ALTER TABLE expenses ADD COLUMN IF NOT EXISTS is_recurring  BOOLEAN NOT NULL DEFAULT FALSE`,
   ]) {
     await pool.query(sql).catch(() => {});
   }
@@ -177,26 +179,29 @@ async function loadGroupExpenses(groupId) {
 async function saveExpense(userId, userName, groupId, scope, expense) {
   await pool.query(
     `INSERT INTO expenses
-       (id, user_id, user_name, group_id, scope, description, amount, category, type, date)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       (id, user_id, user_name, group_id, scope, description, amount, category, type, date, is_recurring)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      ON CONFLICT (id) DO NOTHING`,
     [expense.id, String(userId), userName, groupId || null, scope,
-     expense.desc, expense.amt, expense.cat, expense.type, expense.date]
+     expense.desc, expense.amt, expense.cat, expense.type, expense.date,
+     expense.is_recurring || false]
   );
 }
 
 // Actualizar campos de un gasto (solo el propietario puede editar)
 async function updateExpense(userId, id, fields) {
-  const { desc, amt, cat, type, date } = fields;
+  const { desc, amt, cat, type, date, is_recurring } = fields;
   const { rowCount } = await pool.query(
     `UPDATE expenses
-     SET description = COALESCE($1, description),
-         amount      = COALESCE($2, amount),
-         category    = COALESCE($3, category),
-         type        = COALESCE($4, type),
-         date        = COALESCE($5::date, date)
-     WHERE id = $6 AND user_id = $7`,
-    [desc||null, amt||null, cat||null, type||null, date||null, id, String(userId)]
+     SET description  = COALESCE($1, description),
+         amount       = COALESCE($2, amount),
+         category     = COALESCE($3, category),
+         type         = COALESCE($4, type),
+         date         = COALESCE($5::date, date),
+         is_recurring = COALESCE($6, is_recurring)
+     WHERE id = $7 AND user_id = $8`,
+    [desc||null, amt||null, cat||null, type||null, date||null,
+     is_recurring !== undefined ? is_recurring : null, id, String(userId)]
   );
   return rowCount > 0;
 }
@@ -1102,6 +1107,62 @@ app.post("/api/sheets/sync", async (req, res) => {
   try {
     const result = await syncAllExpensesToSheet(String(telegramId), userName || "Usuario");
     res.json(result);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Toggle recurrente de un gasto
+app.patch("/api/gastos/:id/recurring", async (req, res) => {
+  const { secret, userId } = req.query;
+  if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
+  if (!userId)               return res.status(400).json({ error: "userId requerido" });
+  const safeId = String(userId).replace(/[^0-9]/g, "");
+  const id     = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: "ID inválido" });
+  try {
+    const { rows } = await pool.query(
+      "SELECT is_recurring FROM expenses WHERE id = $1 AND user_id = $2",
+      [id, safeId]
+    );
+    if (!rows.length) return res.status(404).json({ error: "Gasto no encontrado" });
+    const newVal = !rows[0].is_recurring;
+    await pool.query(
+      "UPDATE expenses SET is_recurring = $1 WHERE id = $2 AND user_id = $3",
+      [newVal, id, safeId]
+    );
+    res.json({ ok: true, is_recurring: newVal });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Sugerencias recurrentes del mes actual (gastos marcados que no tienen copia este mes)
+app.get("/api/gastos/recurrentes", async (req, res) => {
+  const { secret, userId } = req.query;
+  if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
+  if (!userId)               return res.status(400).json({ error: "userId requerido" });
+  const safeId   = String(userId).replace(/[^0-9]/g, "");
+  const sqlMonth = currentSqlMonth();
+  try {
+    // Obtener todos los gastos marcados como recurrentes del usuario
+    const { rows: recurring } = await pool.query(
+      `SELECT DISTINCT ON (description, category)
+              id, description AS desc, amount::float AS amt,
+              category AS cat, type, is_recurring
+       FROM expenses
+       WHERE user_id = $1 AND is_recurring = TRUE AND scope = 'private'
+       ORDER BY description, category, date DESC`,
+      [safeId]
+    );
+    if (!recurring.length) return res.json([]);
+
+    // Filtrar los que YA fueron cargados este mes (mismo description + category)
+    const { rows: thisMonth } = await pool.query(
+      `SELECT description, category FROM expenses
+       WHERE user_id = $1 AND scope = 'private'
+         AND to_char(date, 'YYYY-MM') = $2`,
+      [safeId, sqlMonth]
+    );
+    const alreadyLoaded = new Set(thisMonth.map(r => `${r.description}|${r.category}`));
+    const suggestions   = recurring.filter(r => !alreadyLoaded.has(`${r.desc}|${r.cat}`));
+    res.json(suggestions);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
