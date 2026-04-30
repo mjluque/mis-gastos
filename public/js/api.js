@@ -14,8 +14,8 @@ export async function syncUser(uid, silent = false) {
     );
     if (!res.ok) throw new Error("Error " + res.status);
     const serverData = await res.json();
-    const local      = loadUserData(uid);
-    const merged     = { ...local };
+    const local = loadUserData(uid);
+    const merged = { ...local };
     Object.entries(serverData).forEach(([k, v]) => {
       if (!merged[k] || v.length >= merged[k].length) merged[k] = v;
     });
@@ -36,11 +36,27 @@ export async function syncNow(auto = false) {
     return;
   }
   setSyncStatus("syncing", "Sincronizando...");
+
+  // Sincronizar gastos personales
   let ok = 0;
   for (const u of withTg) { if (await syncUser(u.id, true)) ok++; }
+
+  // Sincronizar gastos grupales
+  if (groups.length) {
+    for (const g of groups) {
+      await fetchGroupData(g.id).catch(() => null);
+    }
+  }
+
   const time = new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
-  if (ok > 0) { setSyncStatus("ok", `Actualizado ${time}`); if (!auto) toast("✓ Sincronizado"); }
-  else        { setSyncStatus("err", `Sin conexión · ${time}`); if (!auto) toast("Sin conexión al servidor", false); }
+  if (ok > 0) {
+    setSyncStatus("ok", `Actualizado ${time}`);
+    if (!auto) toast("✓ Sincronizado");
+    localStorage.setItem("gastos_last_sync", `Hoy a las ${time}`);
+  } else {
+    setSyncStatus("err", `Sin conexión · ${time}`);
+    if (!auto) toast("Sin conexión al servidor", false);
+  }
   if (window.__refresh) window.__refresh();
 }
 
@@ -48,7 +64,7 @@ export async function syncNow(auto = false) {
 
 export async function syncUserManual(uid) {
   setSyncStatus("syncing", "Sincronizando...");
-  const ok   = await syncUser(uid, false);
+  const ok = await syncUser(uid, false);
   const time = new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
   setSyncStatus(ok ? "ok" : "err", ok ? `Actualizado ${time}` : `Sin conexión · ${time}`);
   toast(ok ? "✓ Sincronizado" : "Sin conexión al servidor", ok);
@@ -149,7 +165,7 @@ export async function pushRemoteConfig(telegramId, config) {
 export async function checkServerHealth() {
   if (!serverCfg.url) return;
   try {
-    const res  = await fetch(`${serverCfg.url}/api/health`);
+    const res = await fetch(`${serverCfg.url}/api/health`);
     const json = await res.json();
     const badge = document.getElementById("sheets-badge");
     if (badge) badge.style.display = json.sheets ? "inline" : "none";

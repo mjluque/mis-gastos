@@ -14,7 +14,7 @@ import {
 } from "./renders.js"; import {
   syncNow, syncUserManual, deleteExpenseRemote, saveServerConfig,
   checkServerHealth, fetchRemoteConfig, pushRemoteConfig,
-  fetchServerInfo, fetchSecretForUser
+  fetchServerInfo, fetchSecretForUser, fetchGroupData
 } from "./api.js";
 import { openEditFromBtn, closeEditModal, saveEdit } from "./modals.js";
 import { curKey, getKey, CATEGORIES } from "./config.js";
@@ -444,6 +444,13 @@ window.__addGroupFromAccount = addGroupFromAccount;
 window.__removeGroup = removeGroup;
 window.__pushConfig = pushConfig;
 window.__updateContextSelectors = updateContextSelectors;
+window.__syncGroupNow = async (groupId) => {
+  await fetchGroupData(groupId).catch(() => null);
+  if (window.__refresh) window.__refresh();
+  updateContextSelectors();
+  const time = new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+  setSyncStatus("ok", `Actualizado ${time}`);
+};
 window.__loadSuggestion = loadSuggestion;
 window.__toggleRecurring = (id, btn) => toggleRecurring(id, btn);
 

@@ -212,16 +212,20 @@ export function addGroupFromAccount() {
     toast("Ya tenés ese grupo agregado", false); return;
   }
 
-  groups.push({ id: "g" + Date.now(), name, telegramId: gid });
+  const newGroup = { id: "g" + Date.now(), name, telegramId: gid };
+  groups.push(newGroup);
   saveGroups();
   if (nameEl) nameEl.value = "";
   if (idEl) idEl.value = "";
 
   if (window.__pushConfig) window.__pushConfig();
   if (window.__updateContextSelectors) window.__updateContextSelectors();
-  if (window.__refresh) window.__refresh();
 
-  toast("✓ Grupo agregado");
+  // Sincronizar los datos del grupo recién agregado
+  if (window.__syncGroupNow) window.__syncGroupNow(newGroup.id);
+  else if (window.__refresh) window.__refresh();
+
+  toast("✓ Grupo agregado · Sincronizando...");
   renderAccount();
 }
 
