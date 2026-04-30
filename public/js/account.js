@@ -1,7 +1,9 @@
 // ── account.js — sección "Mi cuenta" ─────────────────────────────────────────
 
-import { serverCfg, users, activeId, activeUser, saveUsers, saveUserData,
-         loadUserData, saveServerCfg } from "./storage.js";
+import {
+  serverCfg, users, groups, activeId, activeUser, saveUsers,
+  saveGroups, saveUserData, loadUserData, saveServerCfg
+} from "./storage.js";
 import { toast, updateHeader } from "./ui.js";
 import { fetchSheetsStatus, connectGoogle, disconnectGoogle, syncToSheet } from "./sheets.js";
 import { syncNow } from "./api.js";
@@ -20,11 +22,10 @@ export async function renderAccount() {
     return;
   }
 
-  const hasId     = !!u.telegramId;
-  const initial   = u.name ? u.name.charAt(0).toUpperCase() : "?";
-  const groups    = await fetchUserGroups(u.telegramId);
-  const sheets    = hasId ? await fetchSheetsStatus(u.telegramId) : null;
-  const lastSync  = localStorage.getItem("gastos_last_sync") || null;
+  const hasId = !!u.telegramId;
+  const initial = u.name ? u.name.charAt(0).toUpperCase() : "?";
+  const sheets = hasId ? await fetchSheetsStatus(u.telegramId) : null;
+  const lastSync = localStorage.getItem("gastos_last_sync") || null;
   const serverUrl = serverCfg.url ? new URL(serverCfg.url).hostname : null;
 
   container.innerHTML = `
@@ -57,7 +58,7 @@ export async function renderAccount() {
       <div style="padding:9px 0">
         <div style="font-size:12px;color:var(--text2);margin-bottom:4px">ID de Telegram</div>
         ${hasId
-          ? `<div style="display:flex;align-items:center;gap:7px">
+      ? `<div style="display:flex;align-items:center;gap:7px">
                <span style="font-size:13px;font-weight:500;color:var(--text)">${u.telegramId}</span>
                <svg width="11" height="11" viewBox="0 0 12 12" fill="none" style="opacity:.35;flex-shrink:0">
                  <rect x="2" y="5.5" width="8" height="5.5" rx="1" fill="var(--text)"/>
@@ -65,7 +66,7 @@ export async function renderAccount() {
                </svg>
              </div>
              <div style="font-size:11px;color:var(--text3);margin-top:3px">Contactá al admin si necesitás cambiarlo</div>`
-          : `<div style="font-size:12px;color:var(--text2);margin-bottom:8px">
+      : `<div style="font-size:12px;color:var(--text2);margin-bottom:8px">
                Necesitás tu ID para sincronizar gastos. Mandá
                <code style="font-size:11px;background:var(--bg2);padding:1px 5px;border-radius:4px">/ayuda</code>
                al bot para obtenerlo.
@@ -84,43 +85,65 @@ export async function renderAccount() {
     <div class="card">
       <div class="section-title" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);margin-bottom:8px">Mis grupos</div>
       ${!hasId
-        ? `<div style="font-size:12px;color:var(--text2)">Configurá tu Telegram ID para ver tus grupos.</div>`
-        : groups.length === 0
-          ? `<div style="font-size:12px;color:var(--text2)">Todavía no participás en ningún grupo.</div>`
-          : `<div style="font-size:12px;color:var(--text2);margin-bottom:10px">Grupos en los que participás.</div>
-             <div style="display:flex;flex-wrap:wrap;gap:7px">
-               ${groups.map(g => `
-                 <div style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:12px;background:var(--bg2);color:var(--text2);border:0.5px solid var(--border)">
-                   <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                     <circle cx="4.5" cy="3.5" r="1.5" fill="var(--text2)"/>
-                     <circle cx="7.5" cy="3.5" r="1.5" fill="var(--text2)"/>
-                     <path d="M1 9.5c0-1.93 1.57-3.5 3.5-3.5S8 7.57 8 9.5" stroke="var(--text2)" stroke-width="1.2" fill="none"/>
-                     <path d="M7.5 6.5C8.88 6.5 11 7.34 11 9.5" stroke="var(--text2)" stroke-width="1.2" fill="none"/>
-                   </svg>
-                   ${g.name}
-                 </div>`).join("")}
-             </div>`}
+      ? `<div style="font-size:12px;color:var(--text2)">Configurá tu Telegram ID para agregar grupos.</div>`
+      : `
+          <div style="font-size:12px;color:var(--text2);margin-bottom:10px">
+            Agregá los grupos de Telegram donde registrás gastos. Mandá <code style="font-size:11px;background:var(--bg2);padding:1px 5px;border-radius:4px">/ayuda</code> desde el grupo para obtener el ID.
+          </div>
+          ${(u.groups || []).length > 0
+        ? `<div style="margin-bottom:10px">
+                ${(u.groups || []).map(g => `
+                  <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:0.5px solid var(--border)">
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
+                        <circle cx="4.5" cy="3.5" r="1.5" fill="var(--text2)"/>
+                        <circle cx="7.5" cy="3.5" r="1.5" fill="var(--text2)"/>
+                        <path d="M1 9.5c0-1.93 1.57-3.5 3.5-3.5S8 7.57 8 9.5" stroke="var(--text2)" stroke-width="1.2" fill="none"/>
+                        <path d="M7.5 6.5C8.88 6.5 11 7.34 11 9.5" stroke="var(--text2)" stroke-width="1.2" fill="none"/>
+                      </svg>
+                      <div>
+                        <div style="font-size:13px;font-weight:500;color:var(--text)">${g.name}</div>
+                        <div style="font-size:11px;color:var(--text3)">${g.telegramId}</div>
+                      </div>
+                    </div>
+                    <button onclick="window.__removeGroup('${g.id}')"
+                      style="font-size:10px;padding:2px 7px;border-radius:6px;border:0.5px solid var(--border2);background:none;color:var(--text3);font-family:inherit;cursor:pointer">
+                      Eliminar
+                    </button>
+                  </div>`).join("")}
+              </div>`
+        : `<div style="font-size:12px;color:var(--text3);margin-bottom:10px">Sin grupos configurados aún.</div>`}
+          <div style="display:flex;gap:8px;margin-bottom:6px">
+            <input type="text" id="account-group-name" placeholder="Nombre (ej: Casa)"
+              style="flex:1;font-size:12px;padding:5px 9px;border-radius:7px;border:0.5px solid var(--border2);background:var(--bg);color:var(--text);font-family:inherit">
+            <input type="text" id="account-group-id" placeholder="ID del grupo"
+              style="flex:1;font-size:12px;padding:5px 9px;border-radius:7px;border:0.5px solid var(--border2);background:var(--bg);color:var(--text);font-family:inherit"
+              inputmode="numeric">
+          </div>
+          <button class="btn btn-sm" onclick="window.__addGroupFromAccount()" style="width:100%;font-size:12px">
+            Agregar grupo
+          </button>`}
     </div>
 
     <!-- Google Sheets -->
     <div class="card">
       <div class="section-title" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text2);margin-bottom:12px">Google Sheets</div>
       ${!hasId
-        ? `<div style="font-size:12px;color:var(--text2)">Configurá tu Telegram ID para conectar Google Sheets.</div>`
-        : sheets?.connected
-          ? `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      ? `<div style="font-size:12px;color:var(--text2)">Configurá tu Telegram ID para conectar Google Sheets.</div>`
+      : sheets?.connected
+        ? `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
                <div style="display:flex;align-items:center;gap:7px">
                  <div style="width:7px;height:7px;border-radius:50%;background:#1D9E75;flex-shrink:0"></div>
                  <span style="font-size:13px;color:var(--text)">Cuenta conectada</span>
                </div>
                <div style="display:flex;align-items:center;gap:6px">
                  ${sheets.sheetId
-                   ? `<a href="https://docs.google.com/spreadsheets/d/${sheets.sheetId}/edit" target="_blank"
+          ? `<a href="https://docs.google.com/spreadsheets/d/${sheets.sheetId}/edit" target="_blank"
                         style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#1e7e45;text-decoration:none">
                         <svg width="13" height="13" viewBox="0 0 16 16"><rect width="16" height="16" rx="2" fill="#1e7e45"/><rect x="3" y="4.5" width="10" height="1.3" rx="0.4" fill="white"/><rect x="3" y="7.3" width="10" height="1.3" rx="0.4" fill="white"/><rect x="3" y="10.1" width="6.5" height="1.3" rx="0.4" fill="white"/></svg>
                         Abrir Sheet
                       </a>`
-                   : `<span style="font-size:11px;color:var(--text3)">Sheet se creará con el primer gasto</span>`}
+          : `<span style="font-size:11px;color:var(--text3)">Sheet se creará con el primer gasto</span>`}
                  <button onclick="window.__disconnectGoogle('${u.id}')"
                    style="font-size:10px;padding:2px 6px;border-radius:6px;border:0.5px solid transparent;background:none;color:var(--text3);font-family:inherit;cursor:pointer">
                    Desconectar
@@ -135,7 +158,7 @@ export async function renderAccount() {
                style="width:100%;padding:6px;font-size:12px">
                Sincronizar historial completo
              </button>`
-          : `<div style="font-size:13px;color:var(--text2);margin-bottom:14px">
+        : `<div style="font-size:13px;color:var(--text2);margin-bottom:14px">
                Conectá tu cuenta de Google para sincronizar tus gastos en un Sheet propio.
                El Sheet se crea con tu primer gasto.
              </div>
@@ -171,30 +194,56 @@ export async function renderAccount() {
   `;
 }
 
-// ── Obtener grupos del usuario desde el servidor ───────────────────────────────
+// ── Gestión de grupos del usuario ─────────────────────────────────────────────
+// Los grupos se guardan en el array `groups` de storage.js (localStorage)
+// y se sincronizan con el servidor via pushConfig.
 
-async function fetchUserGroups(telegramId) {
-  if (!telegramId || !serverCfg.url || !serverCfg.secret) return [];
-  try {
-    const res = await fetch(
-      `${serverCfg.url}/api/user/groups?telegramId=${telegramId}&secret=${encodeURIComponent(serverCfg.secret)}`
-    );
-    if (!res.ok) return [];
-    const groupIds = await res.json();
+export function addGroupFromAccount() {
+  const nameEl = document.getElementById("account-group-name");
+  const idEl = document.getElementById("account-group-id");
+  const name = nameEl?.value.trim();
+  const gid = idEl?.value.trim();
 
-    // Mapear IDs a nombres usando los grupos configurados localmente
-    const { groups } = await import("./storage.js");
-    return groupIds.map(gid => {
-      const found = groups.find(g => g.telegramId === gid);
-      return { id: gid, name: found?.name || `Grupo ${gid}` };
-    });
-  } catch { return []; }
+  if (!name) { toast("Ingresá un nombre para el grupo", false); return; }
+  if (!gid || !/^-?\d+$/.test(gid)) { toast("El ID del grupo debe ser un número (puede ser negativo)", false); return; }
+
+  // Verificar que no esté duplicado
+  if (groups.find(g => g.telegramId === gid)) {
+    toast("Ya tenés ese grupo agregado", false); return;
+  }
+
+  groups.push({ id: "g" + Date.now(), name, telegramId: gid });
+  saveGroups();
+  if (nameEl) nameEl.value = "";
+  if (idEl) idEl.value = "";
+
+  // Sincronizar config al servidor
+  if (window.__pushConfig) window.__pushConfig();
+
+  toast("✓ Grupo agregado");
+  renderAccount();
+
+  // Actualizar selectores de contexto en Lista y Comparar
+  if (window.__updateContextSelectors) window.__updateContextSelectors();
+}
+
+export function removeGroup(groupId) {
+  if (!confirm("¿Eliminar este grupo de tu cuenta? Los gastos registrados no se borran.")) return;
+  const idx = groups.findIndex(g => g.id === groupId);
+  if (idx >= 0) groups.splice(idx, 1);
+  saveGroups();
+
+  if (window.__pushConfig) window.__pushConfig();
+
+  toast("Grupo eliminado");
+  renderAccount();
+  if (window.__updateContextSelectors) window.__updateContextSelectors();
 }
 
 // ── Guardar nombre ────────────────────────────────────────────────────────────
 
 export async function saveAccountName() {
-  const u    = activeUser();
+  const u = activeUser();
   const name = document.getElementById("account-name")?.value.trim();
   if (!name) { toast("El nombre no puede estar vacío", false); return; }
   if (name === u?.name) { toast("Sin cambios", false); return; }
@@ -222,7 +271,7 @@ export async function saveAccountName() {
 // ── Guardar Telegram ID (solo primera vez) ────────────────────────────────────
 
 export async function saveTelegramId() {
-  const u   = activeUser();
+  const u = activeUser();
   const tid = document.getElementById("account-telegram-id")?.value.trim();
   if (!tid || !/^\d+$/.test(tid)) { toast("ID de Telegram inválido — solo números", false); return; }
   if (u?.telegramId) { toast("El ID ya está configurado", false); return; }
@@ -237,14 +286,14 @@ export async function saveTelegramId() {
   // Intentar obtener el secret automáticamente
   if (serverCfg.url) {
     try {
-      const res    = await fetch(`${serverCfg.url}/api/info?telegramId=${tid}`);
-      const json   = await res.json();
+      const res = await fetch(`${serverCfg.url}/api/info?telegramId=${tid}`);
+      const json = await res.json();
       if (json.authorized && json.secret) {
         serverCfg.secret = json.secret;
         saveServerCfg();
         toast("✓ ID guardado · Servidor conectado automáticamente");
       }
-    } catch {}
+    } catch { }
   }
 
   // Re-renderizar para mostrar estado actualizado

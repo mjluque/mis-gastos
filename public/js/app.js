@@ -24,7 +24,10 @@ import {
   fetchAdminConfig, saveAdminConfig, fetchAdminGroups
 } from "./admin.js";
 import { connectGoogle, disconnectGoogle, syncToSheet, loadAllSheetsStatus } from "./sheets.js";
-import { renderAccount, saveAccountName, saveTelegramId } from "./account.js";
+import {
+  renderAccount, saveAccountName, saveTelegramId,
+  addGroupFromAccount, removeGroup
+} from "./account.js";
 
 // ── Estado de navegación ──────────────────────────────────────────────────────
 
@@ -437,6 +440,10 @@ window.__syncToSheet = (userId) => syncToSheet(userId);
 window.__saveAccountName = saveAccountName;
 window.__saveTelegramId = saveTelegramId;
 window.__syncNowAccount = () => syncNow(false);
+window.__addGroupFromAccount = addGroupFromAccount;
+window.__removeGroup = removeGroup;
+window.__pushConfig = pushConfig;
+window.__updateContextSelectors = updateContextSelectors;
 window.__loadSuggestion = loadSuggestion;
 window.__toggleRecurring = (id, btn) => toggleRecurring(id, btn);
 

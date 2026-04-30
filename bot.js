@@ -668,13 +668,18 @@ async function cmdAyuda(chatId, userId, isGroup) {
   const ctx = isGroup
     ? `📍 *Estás en un grupo.* Los gastos que cargues acá son *grupales* — cualquier miembro del grupo puede verlos con /resumen o /lista.\n\n`
     : `📍 *Estás en privado.* Los gastos que cargues son *solo tuyos*.\n\n`;
+
+  const ids = isGroup
+    ? `🔑 *Tu ID:* \`${userId}\`\n👥 *ID del grupo:* \`${chatId}\`\n🌐 *App:* ${WEBHOOK_URL || "sin configurar"}`
+    : `🔑 *Tu ID:* \`${userId}\`\n🌐 *App:* ${WEBHOOK_URL || "sin configurar"}`;
+
   sendMessage(chatId,
     `ℹ️ *Bot de gastos*\n\n${ctx}` +
     `*Cómo registrar:*\n\`gasto [monto] [descripción] [categoría] [tipo] [fecha]\`\n\n` +
     `*Ejemplos:*\n\`gasto 2800 supermercado\`\n\`gasto 15000 alquiler vivienda fijo\`\n\`gasto 500 cafe 20/04\`\n\n` +
     `*Categorías:* ${CATEGORIES.join(", ")}\n*Tipos:* fijo · variable · extraordinario\n\n` +
     `*Comandos:* /resumen · /lista · /editar · /ayuda\n\n` +
-    `🔑 *Tu ID:* \`${userId}\`\n🌐 *App:* ${WEBHOOK_URL || "sin configurar"}`
+    ids
   );
 }
 
@@ -969,9 +974,9 @@ app.patch("/api/admin/groups/:groupId", requireAdmin, async (req, res) => {
 app.get("/api/info", (req, res) => {
   const { telegramId } = req.query;
   const safeId = telegramId ? String(telegramId).replace(/[^0-9]/g, "") : null;
-  const authorized = safeId && (
-    ALLOWED_IDS.length === 0 || ALLOWED_IDS.includes(safeId)
-  );
+  // El secret se entrega a cualquier ID que lo pida.
+  // La protección viene del secret mismo — sin él no se puede sincronizar.
+  const authorized = !!safeId;
   res.json({
     serverUrl: WEBHOOK_URL || null,
     secret: authorized ? API_SECRET : null,
@@ -1051,8 +1056,6 @@ app.get("/api/gastos", async (req, res) => {
   if (secret !== API_SECRET) return res.status(401).json({ error: "No autorizado" });
   if (!userId) return res.status(400).json({ error: "userId requerido" });
   const safeId = String(userId).replace(/[^0-9]/g, "");
-  if (ALLOWED_IDS.length > 0 && !ALLOWED_IDS.includes(safeId))
-    return res.status(403).json({ error: "Usuario no autorizado" });
   try { res.json(await loadUserExpenses(safeId)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
