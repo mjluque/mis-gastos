@@ -90,9 +90,9 @@ export async function renderAccount() {
           <div style="font-size:12px;color:var(--text2);margin-bottom:10px">
             Agregá los grupos de Telegram donde registrás gastos. Mandá <code style="font-size:11px;background:var(--bg2);padding:1px 5px;border-radius:4px">/ayuda</code> desde el grupo para obtener el ID.
           </div>
-          ${(u.groups || []).length > 0
+          ${groups.length > 0
         ? `<div style="margin-bottom:10px">
-                ${(u.groups || []).map(g => `
+                ${groups.map(g => `
                   <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:0.5px solid var(--border)">
                     <div style="display:flex;align-items:center;gap:8px">
                       <svg width="13" height="13" viewBox="0 0 12 12" fill="none">
@@ -217,14 +217,12 @@ export function addGroupFromAccount() {
   if (nameEl) nameEl.value = "";
   if (idEl) idEl.value = "";
 
-  // Sincronizar config al servidor
   if (window.__pushConfig) window.__pushConfig();
+  if (window.__updateContextSelectors) window.__updateContextSelectors();
+  if (window.__refresh) window.__refresh();
 
   toast("✓ Grupo agregado");
   renderAccount();
-
-  // Actualizar selectores de contexto en Lista y Comparar
-  if (window.__updateContextSelectors) window.__updateContextSelectors();
 }
 
 export function removeGroup(groupId) {
@@ -234,10 +232,11 @@ export function removeGroup(groupId) {
   saveGroups();
 
   if (window.__pushConfig) window.__pushConfig();
+  if (window.__updateContextSelectors) window.__updateContextSelectors();
+  if (window.__refresh) window.__refresh();
 
   toast("Grupo eliminado");
   renderAccount();
-  if (window.__updateContextSelectors) window.__updateContextSelectors();
 }
 
 // ── Guardar nombre ────────────────────────────────────────────────────────────
