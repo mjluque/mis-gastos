@@ -153,7 +153,8 @@ function groupByMonth(rows) {
 async function loadUserExpenses(userId) {
   const { rows } = await pool.query(
     `SELECT id, description AS desc, amount::float AS amt,
-            category AS cat, type, date::text
+            category AS cat, type, date::text,
+            scope, is_recurring
      FROM expenses
      WHERE user_id = $1 AND scope = 'private'
      ORDER BY date ASC, created_at ASC`,
@@ -166,7 +167,8 @@ async function loadUserExpenses(userId) {
 async function loadGroupExpenses(groupId) {
   const { rows } = await pool.query(
     `SELECT id, user_id, user_name, description AS desc, amount::float AS amt,
-            category AS cat, type, date::text
+            category AS cat, type, date::text,
+            scope, group_id, is_recurring
      FROM expenses
      WHERE group_id = $1 AND scope = 'group'
      ORDER BY date ASC, created_at ASC`,
