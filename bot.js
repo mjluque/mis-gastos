@@ -508,31 +508,62 @@ function guessCategory(text) {
   return null;
 }
 
-function parseExpense(text) {
-  const TYPES = ["fijo", "variable", "extraordinario"];
-  const parts = text.trim().toLowerCase().replace(/^gasto\s+/, "").split(/\s+/);
+function parseInitialExpense(text) {
+  const parts = text.trim().replace(/^gasto\s+/i, "").split(/\s+/);
   const amount = parseFloat(parts[0].replace(",", ".").replace(/[^0-9.]/g, ""));
   if (!amount || isNaN(amount)) return null;
-  let typeFound = "Variable", catFound = null, dateFound = null;
   const descParts = [];
+  let dateFound = null;
   for (let i = 1; i < parts.length; i++) {
-    const w = parts[i], wCap = w.charAt(0).toUpperCase() + w.slice(1);
+    const w = parts[i];
     if (/^\d{1,2}\/\d{1,2}(\/\d{2,4})?$/.test(w)) {
       const [d, m, y] = w.split("/");
       const yr = y ? (y.length === 2 ? "20" + y : y) : new Date().getFullYear();
       dateFound = `${yr}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     } else if (/^\d{4}-\d{2}-\d{2}$/.test(w)) {
       dateFound = w;
-    } else if (TYPES.includes(w)) {
-      typeFound = wCap;
-    } else if (CATEGORIES.map(c => c.toLowerCase()).includes(w)) {
-      catFound = CATEGORIES.find(c => c.toLowerCase() === w);
     } else {
-      descParts.push(wCap);
+      descParts.push(w.charAt(0).toUpperCase() + w.slice(1));
     }
   }
-  const desc = descParts.join(" ") || "Gasto";
-  return { id: Date.now(), desc, amt: amount, cat: catFound || guessCategory(desc) || "Otros", type: typeFound, date: dateFound || new Date().toISOString().split("T")[0] };
+  return {
+    id: Date.now(),
+    desc: descParts.join(" ") || "Gasto",
+    amt: amount,
+    cat: null,
+    type: null,
+    date: dateFound || new Date().toISOString().split("T")[0],
+  };
+}
+
+// ── Flujo conversacional de carga de gasto ────────────────────────────────────
+
+const pendingExpenses = new Map(); // userId → { expense, chatId, userName, groupId, scope, step }
+
+function buildCategoryQuestion(expense) {
+  const suggested = guessCategory(expense.desc);
+  const list = CATEGORIES.map((c, i) => `${i + 1}\\. ${c}`).join("\n");
+  const hint = suggested ? `\n\n_Sugerida: *${suggested}*_` : "";
+  return `🏷️ *Categoría para "${expense.desc}" — ${fmt(expense.amt)}:*\n\n${list}${hint}\n\n_Ingresá el número o el nombre_`;
+}
+
+function buildTypeQuestion(expense) {
+  return `📌 *Tipo de gasto para "${expense.desc}":*\n\n1\\. Fijo\n2\\. Variable\n3\\. Extraordinario\n\n_Ingresá el número o el nombre_`;
+}
+
+function parseCategoryInput(text) {
+  const t = text.trim();
+  const n = parseInt(t);
+  if (!isNaN(n) && n >= 1 && n <= CATEGORIES.length) return CATEGORIES[n - 1];
+  return CATEGORIES.find(c => c.toLowerCase() === t.toLowerCase()) || null;
+}
+
+function parseTypeInput(text) {
+  const t = text.trim().toLowerCase();
+  const n = parseInt(t);
+  const TYPES = ["Fijo", "Variable", "Extraordinario"];
+  if (!isNaN(n) && n >= 1 && n <= 3) return TYPES[n - 1];
+  return { fijo: "Fijo", variable: "Variable", extraordinario: "Extraordinario" }[t] || null;
 }
 
 // ── Telegram API ──────────────────────────────────────────────────────────────
@@ -677,9 +708,9 @@ async function cmdAyuda(chatId, userId, isGroup) {
 
   sendMessage(chatId,
     `ℹ️ *Bot de gastos*\n\n${ctx}` +
-    `*Cómo registrar:*\n\`gasto [monto] [descripción] [categoría] [tipo] [fecha]\`\n\n` +
-    `*Ejemplos:*\n\`gasto 2800 supermercado\`\n\`gasto 15000 alquiler vivienda fijo\`\n\`gasto 500 cafe 20/04\`\n\n` +
-    `*Categorías:* ${CATEGORIES.join(", ")}\n*Tipos:* fijo · variable · extraordinario\n\n` +
+    `*Cómo registrar:*\n\`gasto [monto] [descripción]\`\n\n` +
+    `*Ejemplos:*\n\`gasto 2800 supermercado\`\n\`gasto 15000 alquiler\`\n\`gasto 500 cafe 20/04\`\n\n` +
+    `_El bot te preguntará la categoría y el tipo._\n\n` +
     `*Comandos:* /resumen · /lista · /editar · /ayuda\n\n` +
     ids
   );
@@ -705,28 +736,64 @@ app.post("/webhook", async (req, res) => {
   if (ALLOWED_IDS.length > 0 && !ALLOWED_IDS.includes(userId))
     return sendMessage(chatId, "⛔ No estás autorizado.");
 
-  if (text.startsWith("/resumen")) return isGroup ? cmdResumenGrupal(chatId, groupId, groupName) : cmdResumenPrivado(chatId, userId);
-  if (text.startsWith("/lista")) return isGroup ? cmdListaGrupal(chatId, groupId) : cmdListaPrivado(chatId, userId);
-  if (text.startsWith("/editar")) return isGroup
-    ? sendMessage(chatId, "✏️ El comando /editar solo está disponible en chat privado con el bot.")
-    : cmdEditar(chatId, userId, text);
-  if (text.startsWith("/start") || text.startsWith("/ayuda")) return cmdAyuda(chatId, userId, isGroup);
+  // Los comandos cancelan cualquier carga en progreso
+  if (text.startsWith("/")) {
+    pendingExpenses.delete(userId);
+    if (text.startsWith("/resumen")) return isGroup ? cmdResumenGrupal(chatId, groupId, groupName) : cmdResumenPrivado(chatId, userId);
+    if (text.startsWith("/lista")) return isGroup ? cmdListaGrupal(chatId, groupId) : cmdListaPrivado(chatId, userId);
+    if (text.startsWith("/editar")) return isGroup
+      ? sendMessage(chatId, "✏️ El comando /editar solo está disponible en chat privado con el bot.")
+      : cmdEditar(chatId, userId, text);
+    if (text.startsWith("/start") || text.startsWith("/ayuda")) return cmdAyuda(chatId, userId, isGroup);
+    return;
+  }
+
+  // Flujo conversacional: respuesta a pregunta de categoría o tipo
+  const pending = pendingExpenses.get(userId);
+  if (pending) {
+    if (pending.step === "category") {
+      const cat = parseCategoryInput(text);
+      if (!cat) {
+        return sendMessage(chatId,
+          `❌ Categoría inválida. Ingresá el número (1-${CATEGORIES.length}) o el nombre.\n\n` +
+          buildCategoryQuestion(pending.expense)
+        );
+      }
+      pending.expense.cat = cat;
+      pending.step = "type";
+      return sendMessage(chatId, buildTypeQuestion(pending.expense));
+    }
+
+    if (pending.step === "type") {
+      const type = parseTypeInput(text);
+      if (!type) {
+        return sendMessage(chatId,
+          `❌ Tipo inválido. Ingresá 1, 2 o 3.\n\n` + buildTypeQuestion(pending.expense)
+        );
+      }
+      pending.expense.type = type;
+      pendingExpenses.delete(userId);
+
+      const { expense, chatId: pChatId, userName: pUserName, groupId: pGroupId, scope: pScope } = pending;
+      await saveExpense(userId, pUserName, pGroupId, pScope, expense);
+      appendToUserSheet(userId, pUserName, pScope, pGroupId, expense).catch(console.error);
+
+      const total = pScope === "group" ? await monthTotalGroup(pGroupId) : await monthTotalPrivate(userId);
+      const icon = pScope === "group" ? "👥" : "👤";
+      return sendMessage(pChatId,
+        `✅ *Guardado* ${icon}${OAUTH_CLIENT_ID ? " 📊" : ""}\n\n` +
+        `📝 ${expense.desc}\n💵 *${fmt(expense.amt)}*\n🏷️ ${expense.cat} · ${expense.type}\n📅 ${expense.date}\n\n` +
+        `_Total ${pScope === "group" ? "del grupo" : "personal"} este mes: ${fmt(total)}_`
+      );
+    }
+  }
 
   if (/^gasto\s+/i.test(text)) {
-    const expense = parseExpense(text);
+    const expense = parseInitialExpense(text);
     if (!expense) return sendMessage(chatId, '❌ Formato incorrecto. Probá: `gasto 2800 supermercado`');
 
-    await saveExpense(userId, userName, groupId, scope, expense);
-    // Sheets: escribir en el Sheet del usuario en background (solo si tiene OAuth conectado)
-    appendToUserSheet(userId, userName, scope, groupId, expense).catch(console.error);
-
-    const total = isGroup ? await monthTotalGroup(groupId) : await monthTotalPrivate(userId);
-    const icon = isGroup ? "👥" : "👤";
-    return sendMessage(chatId,
-      `✅ *Guardado* ${icon}${OAUTH_CLIENT_ID ? " 📊" : ""}\n\n` +
-      `📝 ${expense.desc}\n💵 *${fmt(expense.amt)}*\n🏷️ ${expense.cat} · ${expense.type}\n📅 ${expense.date}\n\n` +
-      `_Total ${isGroup ? "del grupo" : "personal"} este mes: ${fmt(total)}_`
-    );
+    pendingExpenses.set(userId, { expense, chatId, userName, groupId, scope, step: "category" });
+    return sendMessage(chatId, buildCategoryQuestion(expense));
   }
 });
 
