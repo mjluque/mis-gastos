@@ -17,7 +17,7 @@ import {
   fetchServerInfo, fetchSecretForUser, fetchGroupData
 } from "./api.js";
 import { openEditFromBtn, closeEditModal, saveEdit } from "./modals.js";
-import { curKey, getKey, CATEGORIES } from "./config.js";
+import { curKey, getKey, CATEGORIES, CAT_COLORS } from "./config.js";
 import {
   adminLogin, adminLogout, checkAdminSession, isAdminLoggedIn,
   renderAdminPanel, renderUserExpensesModal,
@@ -244,11 +244,6 @@ export function deleteGroup(uid) {
 
 // ── Gastos recurrentes — sugerencias ─────────────────────────────────────────
 
-const CAT_COLORS_LOCAL = {
-  "Alimentación": "#378ADD", "Transporte": "#1D9E75", "Vivienda": "#D85A30",
-  "Salud": "#D4537E", "Entretenimiento": "#534AB7", "Ropa": "#BA7517",
-  "Educación": "#639922", "Servicios": "#888780", "Restaurantes": "#185FA5", "Otros": "#3C3489",
-};
 
 export async function loadRecurringSuggestions() {
   const container = document.getElementById("recurring-suggestions");
@@ -281,7 +276,7 @@ export async function loadRecurringSuggestions() {
         onmouseover="this.style.borderColor='var(--border2)'"
         onmouseout="this.style.borderColor='var(--border)'">
         <div style="display:flex;align-items:center;gap:9px">
-          <div style="width:8px;height:8px;border-radius:50%;background:${CAT_COLORS_LOCAL[s.cat] || "#888"};flex-shrink:0"></div>
+          <div style="width:8px;height:8px;border-radius:50%;background:${CAT_COLORS[s.cat] || "#888"};flex-shrink:0"></div>
           <div>
             <div style="font-size:13px;font-weight:500;color:var(--text)">${s.desc}</div>
             <div style="font-size:11px;color:var(--text2)">${s.cat} · ${s.type}</div>
