@@ -102,13 +102,28 @@ Con esta estructura podés armar en el mismo Sheet:
 ## Uso del bot
 
 ```
-gasto 2800 supermercado              → guarda y registra en Sheets
-gasto 15000 alquiler vivienda fijo   → tipo Fijo
-gasto 5500 dentista salud            → categoría auto-detectada
-/resumen                             → totales del mes
-/lista                               → últimos 8 gastos
-/ayuda                               → instrucciones + tu ID de Telegram
+gasto 2800 supermercado   → el bot pregunta categoría y tipo
+gasto 15000 alquiler      → ídem, con fecha opcional: gasto 500 cafe 20/04
+/resumen                  → totales del mes
+/lista                    → últimos 8 gastos
+/ayuda                    → instrucciones + tu ID de Telegram
 ```
+
+---
+
+## Categorías
+
+Las categorías están definidas en **dos lugares** (uno por entorno):
+
+| Archivo | Entorno | Qué contiene |
+|---|---|---|
+| `bot.js` | Servidor (Node.js) | Array `CATEGORIES` + función `guessCategory` |
+| `public/js/config.js` | Frontend (browser) | Array `CATEGORIES` + objeto `CAT_COLORS` |
+
+Al modificar el listado de categorías hay que actualizar **ambos archivos** manualmente.
+
+Categorías actuales:
+`Comida` · `Saliditas & Bares` · `Vivienda` · `Auto` · `Mascotas` · `Salud & Bienestar` · `Transporte` · `Gastos personales` · `Subscripciones` · `Viajes` · `Donaciones` · `Inversiones` · `Otros`
 
 ---
 
