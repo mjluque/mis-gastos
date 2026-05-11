@@ -545,8 +545,17 @@ function updateContextSelectors() {
   }
 }
 
+function initCategorySelects() {
+  const opts = CATEGORIES.map(c => `<option>${c}</option>`).join("");
+  document.getElementById("new-cat").innerHTML = opts;
+  document.getElementById("edit-cat").innerHTML = opts;
+  const filterOpts = `<option value="">Todas las categorías</option>` + opts;
+  document.getElementById("filter-cat").innerHTML = filterOpts;
+}
+
 async function init() {
   initStorage();
+  initCategorySelects();
 
   // Inicializar selectores de fecha
   const now = new Date();

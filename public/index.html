@@ -106,18 +106,7 @@
         <div class="form-row">
           <div>
             <label class="form-label">Categoría</label>
-            <select id="new-cat">
-              <option>Alimentación</option>
-              <option>Transporte</option>
-              <option>Vivienda</option>
-              <option>Salud</option>
-              <option>Entretenimiento</option>
-              <option>Ropa</option>
-              <option>Educación</option>
-              <option>Servicios</option>
-              <option>Restaurantes</option>
-              <option>Otros</option>
-            </select>
+            <select id="new-cat"></select>
           </div>
           <div>
             <label class="form-label">Tipo</label>
@@ -144,11 +133,11 @@
       <div class="card">
         <div class="section-title">Acceso rápido</div>
         <div style="display:flex;flex-wrap:wrap;gap:8px">
-          <button class="btn btn-sm" onclick="window.__quickAdd('Supermercado','Alimentación')">+ Supermercado</button>
+          <button class="btn btn-sm" onclick="window.__quickAdd('Supermercado','Comida')">+ Supermercado</button>
           <button class="btn btn-sm" onclick="window.__quickAdd('Transporte','Transporte')">+ Transporte</button>
           <button class="btn btn-sm" onclick="window.__quickAdd('Alquiler','Vivienda')">+ Alquiler</button>
-          <button class="btn btn-sm" onclick="window.__quickAdd('Netflix','Entretenimiento')">+ Netflix</button>
-          <button class="btn btn-sm" onclick="window.__quickAdd('Farmacia','Salud')">+ Farmacia</button>
+          <button class="btn btn-sm" onclick="window.__quickAdd('Netflix','Subscripciones')">+ Netflix</button>
+          <button class="btn btn-sm" onclick="window.__quickAdd('Farmacia','Salud & Bienestar')">+ Farmacia</button>
         </div>
       </div>
     </div>
@@ -160,19 +149,7 @@
           <option value="">Todos los contextos</option>
           <option value="__personal__">👤 Personal</option>
         </select>
-        <select class="sel-sm" id="filter-cat" onchange="window.__renderList()">
-          <option value="">Todas las categorías</option>
-          <option>Alimentación</option>
-          <option>Transporte</option>
-          <option>Vivienda</option>
-          <option>Salud</option>
-          <option>Entretenimiento</option>
-          <option>Ropa</option>
-          <option>Educación</option>
-          <option>Servicios</option>
-          <option>Restaurantes</option>
-          <option>Otros</option>
-        </select>
+        <select class="sel-sm" id="filter-cat" onchange="window.__renderList()"></select>
         <select class="sel-sm" id="filter-type" onchange="window.__renderList()">
           <option value="">Todos los tipos</option>
           <option>Fijo</option>
@@ -298,18 +275,7 @@
       <div class="form-row">
         <div>
           <label class="form-label">Categoría</label>
-          <select id="edit-cat">
-            <option>Alimentación</option>
-            <option>Transporte</option>
-            <option>Vivienda</option>
-            <option>Salud</option>
-            <option>Entretenimiento</option>
-            <option>Ropa</option>
-            <option>Educación</option>
-            <option>Servicios</option>
-            <option>Restaurantes</option>
-            <option>Otros</option>
-          </select>
+          <select id="edit-cat"></select>
         </div>
         <div>
           <label class="form-label">Tipo</label>
