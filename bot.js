@@ -493,18 +493,34 @@ async function syncAllExpensesToSheet(telegramId, userName) {
 function fmt(n) { return "$" + Number(n).toLocaleString("es-AR"); }
 
 const MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-const CATEGORIES = ["Alimentación", "Transporte", "Vivienda", "Salud", "Entretenimiento", "Ropa", "Educación", "Servicios", "Restaurantes", "Otros"];
+const CATEGORIES = [
+  "Comida",
+  "Saliditas & Bares",
+  "Vivienda",
+  "Auto",
+  "Mascotas",
+  "Salud & Bienestar",
+  "Transporte",
+  "Gastos personales",
+  "Subscripciones",
+  "Viajes",
+  "Donaciones",
+  "Inversiones",
+  "Otros",
+];
 
 function guessCategory(text) {
   const t = text.toLowerCase();
-  if (/super|mercado|carrefour|coto|jumbo|dia|verdura/.test(t)) return "Alimentación";
-  if (/sube|colectivo|tren|taxi|uber|remis|nafta|combustible/.test(t)) return "Transporte";
-  if (/alquiler|expensas|luz|edesur|gas|metrogas|agua|internet/.test(t)) return "Vivienda";
-  if (/farmacia|médico|medico|obra social|dentista|hospital/.test(t)) return "Salud";
-  if (/netflix|spotify|cine|teatro|disney|stream/.test(t)) return "Entretenimiento";
-  if (/ropa|zapatillas|calzado|indumentaria/.test(t)) return "Ropa";
-  if (/curso|libro|universidad|colegio|escuela/.test(t)) return "Educación";
-  if (/resto|restaurant|bar|café|cafe|pizza|sushi/.test(t)) return "Restaurantes";
+  if (/super|mercado|carrefour|coto|jumbo|dia\b|verdura|delivery|deliveries|pedidos|rappi|glovo/.test(t)) return "Comida";
+  if (/resto|restaurant|bar|café|cafe|pizza|sushi|cerveza/.test(t)) return "Saliditas & Bares";
+  if (/alquiler|expensas|luz|edesur|gas|metrogas|agua|internet|wifi/.test(t)) return "Vivienda";
+  if (/nafta|combustible|ypf|shell|axion|seguro|patente|vtv/.test(t)) return "Auto";
+  if (/mascota|veterinaria|veterinario|perro|gato/.test(t)) return "Mascotas";
+  if (/farmacia|médico|medico|dentista|hospital|clínica|clinica|obra social/.test(t)) return "Salud & Bienestar";
+  if (/sube|colectivo|tren|taxi|uber|remis|cabify/.test(t)) return "Transporte";
+  if (/netflix|spotify|disney|hbo|flow|stream|suscripcion|suscripción/.test(t)) return "Subscripciones";
+  if (/viaje|hotel|vuelo|airbnb/.test(t)) return "Viajes";
+  if (/donacion|donación/.test(t)) return "Donaciones";
   return null;
 }
 
@@ -670,7 +686,7 @@ async function cmdEditar(chatId, userId, text) {
     }
     case "categoria": case "categoría": case "cat": {
       const cat = CATEGORIES.find(c => c.toLowerCase() === value.toLowerCase());
-      if (!cat) return sendMessage(chatId, `❌ Categoría inválida.\nOpciones: ${CATEGORIES.join(", ")}`);
+      if (!cat) return sendMessage(chatId, `❌ Categoría inválida.\n\n${CATEGORIES.map((c, i) => `${i + 1}. ${c}`).join("\n")}\n\n_Usá el nombre exacto._`);
       fields.cat = cat; break;
     }
     case "tipo": case "type": {
