@@ -6,21 +6,35 @@ export const MONTHS = [
 ];
 
 export const CATEGORIES = [
-    "Alimentación", "Transporte", "Vivienda", "Salud", "Entretenimiento",
-    "Ropa", "Educación", "Servicios", "Restaurantes", "Otros",
+    "Comida",
+    "Saliditas & Bares",
+    "Vivienda",
+    "Auto",
+    "Mascotas",
+    "Salud & Bienestar",
+    "Transporte",
+    "Gastos personales",
+    "Subscripciones",
+    "Viajes",
+    "Donaciones",
+    "Inversiones",
+    "Otros",
 ];
 
 export const CAT_COLORS = {
-    "Alimentación": "#378ADD",
-    "Transporte": "#1D9E75",
-    "Vivienda": "#D85A30",
-    "Salud": "#D4537E",
-    "Entretenimiento": "#534AB7",
-    "Ropa": "#BA7517",
-    "Educación": "#639922",
-    "Servicios": "#888780",
-    "Restaurantes": "#185FA5",
-    "Otros": "#3C3489",
+    "Comida":             "#378ADD",
+    "Saliditas & Bares":  "#185FA5",
+    "Vivienda":           "#D85A30",
+    "Auto":               "#BA7517",
+    "Mascotas":           "#639922",
+    "Salud & Bienestar":  "#D4537E",
+    "Transporte":         "#1D9E75",
+    "Gastos personales":  "#888780",
+    "Subscripciones":     "#534AB7",
+    "Viajes":             "#0E9AA7",
+    "Donaciones":         "#E87D3E",
+    "Inversiones":        "#2E7D32",
+    "Otros":              "#3C3489",
 };
 
 // ── Helpers de formato ────────────────────────────────────────────────────────

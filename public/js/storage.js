@@ -162,17 +162,17 @@ export function initStorage() {
     saveActive();
     const demo = {};
     demo[dKey] = [
-      { id: 1, desc: "Carrefour",  amt: 28500,  cat: "Alimentación",    type: "Variable",      date: `${now.getFullYear()}-04-02` },
-      { id: 2, desc: "Alquiler",   amt: 180000, cat: "Vivienda",         type: "Fijo",          date: `${now.getFullYear()}-04-01` },
-      { id: 3, desc: "SUBE",       amt: 12000,  cat: "Transporte",       type: "Variable",      date: `${now.getFullYear()}-04-03` },
-      { id: 4, desc: "Netflix",    amt: 4200,   cat: "Entretenimiento",  type: "Fijo",          date: `${now.getFullYear()}-04-01` },
-      { id: 5, desc: "Farmacia",   amt: 8900,   cat: "Salud",            type: "Variable",      date: `${now.getFullYear()}-04-05` },
+      { id: 1, desc: "Carrefour",  amt: 28500,  cat: "Comida",           type: "Variable", date: `${now.getFullYear()}-04-02` },
+      { id: 2, desc: "Alquiler",   amt: 180000, cat: "Vivienda",         type: "Fijo",     date: `${now.getFullYear()}-04-01` },
+      { id: 3, desc: "SUBE",       amt: 12000,  cat: "Transporte",       type: "Variable", date: `${now.getFullYear()}-04-03` },
+      { id: 4, desc: "Netflix",    amt: 4200,   cat: "Subscripciones",   type: "Fijo",     date: `${now.getFullYear()}-04-01` },
+      { id: 5, desc: "Farmacia",   amt: 8900,   cat: "Salud & Bienestar",type: "Variable", date: `${now.getFullYear()}-04-05` },
     ];
     demo[prev] = [
-      { id: 10, desc: "Supermercado", amt: 31000,  cat: "Alimentación", type: "Variable", date: `${now.getFullYear()}-03-03` },
-      { id: 11, desc: "Alquiler",     amt: 180000, cat: "Vivienda",     type: "Fijo",     date: `${now.getFullYear()}-03-01` },
-      { id: 12, desc: "SUBE",         amt: 9800,   cat: "Transporte",   type: "Variable", date: `${now.getFullYear()}-03-05` },
-      { id: 13, desc: "Edesur",       amt: 13200,  cat: "Servicios",    type: "Fijo",     date: `${now.getFullYear()}-03-04` },
+      { id: 10, desc: "Supermercado", amt: 31000,  cat: "Comida",    type: "Variable", date: `${now.getFullYear()}-03-03` },
+      { id: 11, desc: "Alquiler",     amt: 180000, cat: "Vivienda",  type: "Fijo",     date: `${now.getFullYear()}-03-01` },
+      { id: 12, desc: "SUBE",         amt: 9800,   cat: "Transporte",type: "Variable", date: `${now.getFullYear()}-03-05` },
+      { id: 13, desc: "Edesur",       amt: 13200,  cat: "Vivienda",  type: "Fijo",     date: `${now.getFullYear()}-03-04` },
     ];
     saveUserData(uid, demo);
   }
