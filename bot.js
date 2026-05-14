@@ -312,118 +312,152 @@ async function getAuthClientForUser(telegramId) {
   return oauth2;
 }
 
-// Crea el Sheet del usuario la primera vez que registra un gasto
+// ── Google Sheets — constantes ────────────────────────────────────────────────
+
+const SHEET_MONTHS = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+const MONTH_TAB_HEADERS = ["Fecha","Descripción","Categoría","Tipo","Contexto","Monto"];
+
+function monthTabTitle(key) { // key = "2026-05"
+  const [y, m] = key.split("-");
+  return `${key} ${SHEET_MONTHS[parseInt(m) - 1]}`;
+}
+
+// ── Google Sheets — formato ───────────────────────────────────────────────────
+
+async function applyMonthTabFormat(sheets, spreadsheetId, tabSheetId, numDataRows) {
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    resource: { requests: [
+      // Encabezado: negrita + fondo gris claro
+      { repeatCell: {
+        range: { sheetId: tabSheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 6 },
+        cell: { userEnteredFormat: { textFormat: { bold: true }, backgroundColor: { red: 0.85, green: 0.85, blue: 0.85 } } },
+        fields: "userEnteredFormat(textFormat,backgroundColor)",
+      }},
+      // Congelar fila 1
+      { updateSheetProperties: {
+        properties: { sheetId: tabSheetId, gridProperties: { frozenRowCount: 1 } },
+        fields: "gridProperties.frozenRowCount",
+      }},
+      // Columna F (Monto): formato numérico con miles
+      { repeatCell: {
+        range: { sheetId: tabSheetId, startRowIndex: 1, endRowIndex: Math.max(numDataRows + 1, 2), startColumnIndex: 5, endColumnIndex: 6 },
+        cell: { userEnteredFormat: { numberFormat: { type: "NUMBER", pattern: "#,##0" } } },
+        fields: "userEnteredFormat.numberFormat",
+      }},
+    ]},
+  });
+}
+
+async function applyResumenFormat(sheets, spreadsheetId, resumenSheetId, numDataRows, numCols) {
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    resource: { requests: [
+      // Encabezado: negrita + fondo verde suave
+      { repeatCell: {
+        range: { sheetId: resumenSheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: numCols },
+        cell: { userEnteredFormat: { textFormat: { bold: true }, backgroundColor: { red: 0.71, green: 0.84, blue: 0.70 } } },
+        fields: "userEnteredFormat(textFormat,backgroundColor)",
+      }},
+      // Columna A (Categoría): negrita
+      { repeatCell: {
+        range: { sheetId: resumenSheetId, startRowIndex: 0, endRowIndex: numDataRows + 2, startColumnIndex: 0, endColumnIndex: 1 },
+        cell: { userEnteredFormat: { textFormat: { bold: true } } },
+        fields: "userEnteredFormat.textFormat",
+      }},
+      // Fila Total (última): negrita + fondo gris muy claro
+      { repeatCell: {
+        range: { sheetId: resumenSheetId, startRowIndex: numDataRows + 1, endRowIndex: numDataRows + 2, startColumnIndex: 0, endColumnIndex: numCols },
+        cell: { userEnteredFormat: { textFormat: { bold: true }, backgroundColor: { red: 0.93, green: 0.93, blue: 0.93 } } },
+        fields: "userEnteredFormat(textFormat,backgroundColor)",
+      }},
+      // Congelar fila 1 y columna 1
+      { updateSheetProperties: {
+        properties: { sheetId: resumenSheetId, gridProperties: { frozenRowCount: 1, frozenColumnCount: 1 } },
+        fields: "gridProperties(frozenRowCount,frozenColumnCount)",
+      }},
+      // Columnas de montos (B en adelante): formato numérico
+      { repeatCell: {
+        range: { sheetId: resumenSheetId, startRowIndex: 1, endRowIndex: numDataRows + 2, startColumnIndex: 1, endColumnIndex: numCols },
+        cell: { userEnteredFormat: { numberFormat: { type: "NUMBER", pattern: "#,##0" } } },
+        fields: "userEnteredFormat.numberFormat",
+      }},
+    ]},
+  });
+}
+
+// ── Google Sheets — crear spreadsheet inicial ─────────────────────────────────
+
 async function createUserSheet(auth, userName) {
   const drive = google.drive({ version: "v3", auth });
   const sheets = google.sheets({ version: "v4", auth });
 
-  // Crear el archivo en Drive
   const file = await drive.files.create({
-    requestBody: {
-      name: `Mis gastos — ${userName}`,
-      mimeType: "application/vnd.google-apps.spreadsheet",
-    },
+    requestBody: { name: `Mis gastos — ${userName}`, mimeType: "application/vnd.google-apps.spreadsheet" },
     fields: "id",
   });
-  const sheetId = file.data.id;
+  const spreadsheetId = file.data.id;
 
-  // Configurar hojas con encabezados
-  const SHEET_HEADERS = {
-    "Gastos": ["ID", "Usuario", "Fecha", "Descripción", "Monto", "Categoría", "Tipo", "Contexto", "Mes", "Año"],
-    "Resumen_Mensual": ["Usuario", "Año", "Mes", "Categoría", "Total"],
-  };
-
-  // Renombrar la hoja por defecto a "Gastos"
-  const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+  // Renombrar la hoja por defecto a "Resumen"
+  const meta = await sheets.spreadsheets.get({ spreadsheetId });
   const defaultSheetId = meta.data.sheets[0].properties.sheetId;
   await sheets.spreadsheets.batchUpdate({
-    spreadsheetId: sheetId,
-    resource: {
-      requests: [
-        { updateSheetProperties: { properties: { sheetId: defaultSheetId, title: "Gastos" }, fields: "title" } },
-        { addSheet: { properties: { title: "Resumen_Mensual" } } },
-      ],
-    },
+    spreadsheetId,
+    resource: { requests: [{ updateSheetProperties: { properties: { sheetId: defaultSheetId, title: "Resumen" }, fields: "title" } }] },
   });
 
-  // Escribir encabezados
-  for (const [title, headers] of Object.entries(SHEET_HEADERS)) {
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: sheetId,
-      range: `${title}!A1`,
-      valueInputOption: "RAW",
-      resource: { values: [headers] },
-    });
-  }
-
-  return sheetId;
+  return spreadsheetId;
 }
 
-// Escribe un gasto en el Sheet del usuario.
-// Si es el primer gasto, crea el Sheet primero.
+// ── Google Sheets — escribir un gasto (incremental desde Telegram) ────────────
+
 async function appendToUserSheet(telegramId, userName, scope, groupId, expense) {
   const auth = await getAuthClientForUser(telegramId);
-  if (!auth) return; // sin OAuth configurado, silenciar
+  if (!auth) return;
 
   const sheets = google.sheets({ version: "v4", auth });
 
-  // Obtener o crear el sheet_id
-  let { rows } = await pool.query(
-    "SELECT sheet_id FROM user_google_tokens WHERE telegram_id = $1",
-    [String(telegramId)]
-  );
-  let sheetId = rows[0]?.sheet_id;
-
-  if (!sheetId) {
+  let { rows } = await pool.query("SELECT sheet_id FROM user_google_tokens WHERE telegram_id = $1", [String(telegramId)]);
+  let spreadsheetId = rows[0]?.sheet_id;
+  if (!spreadsheetId) {
     try {
-      sheetId = await createUserSheet(auth, userName);
-      await pool.query(
-        "UPDATE user_google_tokens SET sheet_id = $1 WHERE telegram_id = $2",
-        [sheetId, String(telegramId)]
-      );
-      console.log(`📊 Sheet creado para ${userName}: ${sheetId}`);
-    } catch (e) {
-      console.error("Error creando Sheet:", e.message);
-      return;
-    }
+      spreadsheetId = await createUserSheet(auth, userName);
+      await pool.query("UPDATE user_google_tokens SET sheet_id = $1 WHERE telegram_id = $2", [spreadsheetId, String(telegramId)]);
+      console.log(`📊 Sheet creado para ${userName}: ${spreadsheetId}`);
+    } catch (e) { console.error("Error creando Sheet:", e.message); return; }
   }
 
-  const date = new Date(expense.date);
-  const year = date.getFullYear();
-  const monthName = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"][date.getMonth()];
+  const monthKey = expense.date.substring(0, 7);
+  const tabTitle = monthTabTitle(monthKey);
   const ctx = scope === "group" ? `Grupal (${groupId})` : "Personal";
 
   try {
+    // Crear pestaña mensual si no existe
+    const meta = await sheets.spreadsheets.get({ spreadsheetId });
+    const existing = meta.data.sheets.find(s => s.properties.title === tabTitle);
+    if (!existing) {
+      const res = await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        resource: { requests: [{ addSheet: { properties: { title: tabTitle } } }] },
+      });
+      const tabSheetId = res.data.replies[0].addSheet.properties.sheetId;
+      await sheets.spreadsheets.values.update({
+        spreadsheetId, range: `'${tabTitle}'!A1`,
+        valueInputOption: "RAW", resource: { values: [MONTH_TAB_HEADERS] },
+      });
+      await applyMonthTabFormat(sheets, spreadsheetId, tabSheetId, 500);
+    }
+
     await sheets.spreadsheets.values.append({
-      spreadsheetId: sheetId,
-      range: "Gastos!A:J",
+      spreadsheetId, range: `'${tabTitle}'!A:F`,
       valueInputOption: "USER_ENTERED",
-      resource: { values: [[expense.id, userName, expense.date, expense.desc, expense.amt, expense.cat, expense.type, ctx, monthName, year]] },
+      resource: { values: [[expense.date, expense.desc, expense.cat, expense.type, ctx, expense.amt]] },
     });
-    await updateUserMonthlyResume(sheets, sheetId, userName, year, monthName, expense.cat, expense.amt);
   } catch (e) { console.error("Error escribiendo en Sheet:", e.message); }
 }
 
-async function updateUserMonthlyResume(sheets, sheetId, userName, year, monthName, cat, amt) {
-  const res = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: "Resumen_Mensual!A:E" }).catch(() => null);
-  const rows = res?.data?.values || [];
-  const idx = rows.findIndex((r, i) =>
-    i > 0 && r[0] === userName && String(r[1]) === String(year) && r[2] === monthName && r[3] === cat
-  );
-  if (idx >= 0) {
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: sheetId, range: `Resumen_Mensual!E${idx + 1}`,
-      valueInputOption: "USER_ENTERED", resource: { values: [[(parseFloat(rows[idx][4]) || 0) + amt]] },
-    });
-  } else {
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: sheetId, range: "Resumen_Mensual!A:E",
-      valueInputOption: "USER_ENTERED", resource: { values: [[userName, year, monthName, cat, amt]] },
-    });
-  }
-}
+// ── Google Sheets — sincronización completa ───────────────────────────────────
 
-// Sincroniza TODOS los gastos históricos del usuario al Sheet (llamada manual desde la app)
 async function syncAllExpensesToSheet(telegramId, userName) {
   const auth = await getAuthClientForUser(telegramId);
   if (!auth) return { ok: false, error: "Sin conexión a Google" };
@@ -438,48 +472,125 @@ async function syncAllExpensesToSheet(telegramId, userName) {
 
   const sheets = google.sheets({ version: "v4", auth });
   let { rows } = await pool.query("SELECT sheet_id FROM user_google_tokens WHERE telegram_id = $1", [String(telegramId)]);
-  let sheetId = rows[0]?.sheet_id;
-
-  if (!sheetId) {
-    sheetId = await createUserSheet(auth, userName);
-    await pool.query("UPDATE user_google_tokens SET sheet_id = $1 WHERE telegram_id = $2", [sheetId, String(telegramId)]);
+  let spreadsheetId = rows[0]?.sheet_id;
+  if (!spreadsheetId) {
+    spreadsheetId = await createUserSheet(auth, userName);
+    await pool.query("UPDATE user_google_tokens SET sheet_id = $1 WHERE telegram_id = $2", [spreadsheetId, String(telegramId)]);
   }
 
-  // Limpiar hoja Gastos (mantener encabezados) y reescribir todo
-  await sheets.spreadsheets.values.clear({ spreadsheetId: sheetId, range: "Gastos!A2:Z" });
-  await sheets.spreadsheets.values.clear({ spreadsheetId: sheetId, range: "Resumen_Mensual!A2:Z" });
+  // ── 1. Garantizar que "Resumen" exista y borrar todo lo demás ─────────────
+  let meta = await sheets.spreadsheets.get({ spreadsheetId });
+  let resumenSheet = meta.data.sheets.find(s => s.properties.title === "Resumen");
+  let resumenSheetId;
 
-  const MONTHS_ARR = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-  const gastoRows = expenses.map(e => {
-    const d = new Date(e.date);
-    const ctx = e.scope === "group" ? `Grupal (${e.group_id})` : "Personal";
-    return [e.id, userName, e.date, e.desc, e.amt, e.cat, e.type, ctx, MONTHS_ARR[d.getMonth()], d.getFullYear()];
-  });
-
-  await sheets.spreadsheets.values.append({
-    spreadsheetId: sheetId, range: "Gastos!A2", valueInputOption: "USER_ENTERED",
-    resource: { values: gastoRows },
-  });
-
-  // Reconstruir resumen mensual
-  const resumen = {};
-  for (const e of expenses) {
-    const d = new Date(e.date);
-    const key = `${userName}|${d.getFullYear()}|${MONTHS_ARR[d.getMonth()]}|${e.cat}`;
-    resumen[key] = (resumen[key] || 0) + e.amt;
-  }
-  const resumenRows = Object.entries(resumen).map(([k, total]) => {
-    const [u, year, month, cat] = k.split("|");
-    return [u, year, month, cat, total];
-  });
-  if (resumenRows.length) {
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: sheetId, range: "Resumen_Mensual!A2", valueInputOption: "USER_ENTERED",
-      resource: { values: resumenRows },
+  if (!resumenSheet) {
+    const res = await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      resource: { requests: [{ addSheet: { properties: { title: "Resumen", index: 0 } } }] },
+    });
+    resumenSheetId = res.data.replies[0].addSheet.properties.sheetId;
+    meta = await sheets.spreadsheets.get({ spreadsheetId });
+  } else {
+    resumenSheetId = resumenSheet.properties.sheetId;
+    // Mover Resumen al índice 0
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      resource: { requests: [{ updateSheetProperties: { properties: { sheetId: resumenSheetId, index: 0 }, fields: "index" } }] },
     });
   }
 
-  return { ok: true, count: expenses.length, sheetId };
+  const toDelete = meta.data.sheets.filter(s => s.properties.title !== "Resumen");
+  if (toDelete.length) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      resource: { requests: toDelete.map(s => ({ deleteSheet: { sheetId: s.properties.sheetId } })) },
+    });
+  }
+
+  // ── 2. Agrupar gastos por mes ─────────────────────────────────────────────
+  const byMonth = {};
+  for (const e of expenses) {
+    const key = e.date.substring(0, 7);
+    (byMonth[key] = byMonth[key] || []).push(e);
+  }
+  const monthKeys = Object.keys(byMonth).sort();
+
+  // ── 3. Crear pestañas mensuales con datos y mini-resumen ─────────────────
+  for (const key of monthKeys) {
+    const tabTitle = monthTabTitle(key);
+    const addRes = await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      resource: { requests: [{ addSheet: { properties: { title: tabTitle } } }] },
+    });
+    const tabSheetId = addRes.data.replies[0].addSheet.properties.sheetId;
+
+    const dataRows = byMonth[key].map(e => {
+      const ctx = e.scope === "group" ? `Grupal (${e.group_id})` : "Personal";
+      return [e.date, e.desc, e.cat, e.type, ctx, e.amt];
+    });
+
+    // Encabezados + datos
+    await sheets.spreadsheets.values.update({
+      spreadsheetId, range: `'${tabTitle}'!A1`,
+      valueInputOption: "USER_ENTERED",
+      resource: { values: [MONTH_TAB_HEADERS, ...dataRows] },
+    });
+
+    // Mini-resumen al pie (2 filas de separación)
+    const catTotals = {};
+    for (const e of byMonth[key]) catTotals[e.cat] = (catTotals[e.cat] || 0) + e.amt;
+    const monthTotal = byMonth[key].reduce((s, e) => s + e.amt, 0);
+    const summaryStartRow = dataRows.length + 3;
+    const summaryRows = [
+      ["", "", "", "", "Categoría", "Total"],
+      ...Object.entries(catTotals).sort((a, b) => b[1] - a[1]).map(([cat, total]) => ["", "", "", "", cat, total]),
+      ["", "", "", "", "Total", monthTotal],
+    ];
+    await sheets.spreadsheets.values.update({
+      spreadsheetId, range: `'${tabTitle}'!A${summaryStartRow}`,
+      valueInputOption: "USER_ENTERED", resource: { values: summaryRows },
+    });
+
+    await applyMonthTabFormat(sheets, spreadsheetId, tabSheetId, dataRows.length);
+  }
+
+  // ── 4. Construir pestaña Resumen ──────────────────────────────────────────
+  const currentYear = new Date().getFullYear();
+  const currentYearMonths = monthKeys.filter(k => k.startsWith(String(currentYear)));
+  let resumenMonths = currentYearMonths;
+  if (resumenMonths.length < 3) {
+    const prev = monthKeys.filter(k => !k.startsWith(String(currentYear)));
+    resumenMonths = [...prev.slice(-(3 - resumenMonths.length)), ...resumenMonths];
+  }
+
+  const colHeaders = resumenMonths.map(k => {
+    const [y, m] = k.split("-");
+    return `${SHEET_MONTHS[parseInt(m) - 1].substring(0, 3)} ${y}`;
+  });
+  const headers = ["Categoría", ...colHeaders, "Total"];
+
+  const catRows = CATEGORIES
+    .map(cat => {
+      const vals = resumenMonths.map(k => (byMonth[k] || []).filter(e => e.cat === cat).reduce((s, e) => s + e.amt, 0));
+      const total = vals.reduce((s, v) => s + v, 0);
+      return total > 0 ? [cat, ...vals, total] : null;
+    })
+    .filter(Boolean);
+
+  const monthTotals = resumenMonths.map(k => (byMonth[k] || []).reduce((s, e) => s + e.amt, 0));
+  const grandTotal = monthTotals.reduce((s, v) => s + v, 0);
+  const totalRow = ["Total", ...monthTotals, grandTotal];
+
+  await sheets.spreadsheets.values.clear({ spreadsheetId, range: "Resumen!A:Z" });
+  await sheets.spreadsheets.values.update({
+    spreadsheetId, range: "Resumen!A1",
+    valueInputOption: "USER_ENTERED",
+    resource: { values: [headers, ...catRows, totalRow] },
+  });
+
+  await applyResumenFormat(sheets, spreadsheetId, resumenSheetId, catRows.length, headers.length);
+
+  return { ok: true, count: expenses.length, sheetId: spreadsheetId };
 }
 
 
