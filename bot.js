@@ -324,14 +324,22 @@ function monthTabTitle(key) { // key = "2026-05"
 
 // ── Google Sheets — formato ───────────────────────────────────────────────────
 
+const FONT = "Trebuchet MS";
+
 async function applyMonthTabFormat(sheets, spreadsheetId, tabSheetId, numDataRows) {
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
     resource: { requests: [
-      // Encabezado: negrita + fondo gris claro
+      // Fuente para toda la pestaña
+      { repeatCell: {
+        range: { sheetId: tabSheetId, startRowIndex: 0, endRowIndex: 1000, startColumnIndex: 0, endColumnIndex: 26 },
+        cell: { userEnteredFormat: { textFormat: { fontFamily: FONT } } },
+        fields: "userEnteredFormat.textFormat.fontFamily",
+      }},
+      // Encabezado: negrita + fuente + fondo gris claro
       { repeatCell: {
         range: { sheetId: tabSheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 6 },
-        cell: { userEnteredFormat: { textFormat: { bold: true }, backgroundColor: { red: 0.85, green: 0.85, blue: 0.85 } } },
+        cell: { userEnteredFormat: { textFormat: { bold: true, fontFamily: FONT }, backgroundColor: { red: 0.85, green: 0.85, blue: 0.85 } } },
         fields: "userEnteredFormat(textFormat,backgroundColor)",
       }},
       // Congelar fila 1
@@ -350,25 +358,33 @@ async function applyMonthTabFormat(sheets, spreadsheetId, tabSheetId, numDataRow
 }
 
 async function applyResumenFormat(sheets, spreadsheetId, resumenSheetId, numDataRows, numCols) {
+  // numCols incluye la columna Δ (última). Las columnas de montos van de B hasta la penúltima.
+  const deltaColIdx = numCols - 1;
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
     resource: { requests: [
-      // Encabezado: negrita + fondo verde suave
+      // Fuente para toda la pestaña
+      { repeatCell: {
+        range: { sheetId: resumenSheetId, startRowIndex: 0, endRowIndex: 1000, startColumnIndex: 0, endColumnIndex: 26 },
+        cell: { userEnteredFormat: { textFormat: { fontFamily: FONT } } },
+        fields: "userEnteredFormat.textFormat.fontFamily",
+      }},
+      // Encabezado: negrita + fuente + fondo verde suave
       { repeatCell: {
         range: { sheetId: resumenSheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: numCols },
-        cell: { userEnteredFormat: { textFormat: { bold: true }, backgroundColor: { red: 0.71, green: 0.84, blue: 0.70 } } },
+        cell: { userEnteredFormat: { textFormat: { bold: true, fontFamily: FONT }, backgroundColor: { red: 0.71, green: 0.84, blue: 0.70 } } },
         fields: "userEnteredFormat(textFormat,backgroundColor)",
       }},
-      // Columna A (Categoría): negrita
+      // Columna A (Categoría): negrita + fuente
       { repeatCell: {
         range: { sheetId: resumenSheetId, startRowIndex: 0, endRowIndex: numDataRows + 2, startColumnIndex: 0, endColumnIndex: 1 },
-        cell: { userEnteredFormat: { textFormat: { bold: true } } },
+        cell: { userEnteredFormat: { textFormat: { bold: true, fontFamily: FONT } } },
         fields: "userEnteredFormat.textFormat",
       }},
-      // Fila Total (última): negrita + fondo gris muy claro
+      // Fila Total (última): negrita + fuente + fondo gris muy claro
       { repeatCell: {
         range: { sheetId: resumenSheetId, startRowIndex: numDataRows + 1, endRowIndex: numDataRows + 2, startColumnIndex: 0, endColumnIndex: numCols },
-        cell: { userEnteredFormat: { textFormat: { bold: true }, backgroundColor: { red: 0.93, green: 0.93, blue: 0.93 } } },
+        cell: { userEnteredFormat: { textFormat: { bold: true, fontFamily: FONT }, backgroundColor: { red: 0.93, green: 0.93, blue: 0.93 } } },
         fields: "userEnteredFormat(textFormat,backgroundColor)",
       }},
       // Congelar fila 1 y columna 1
@@ -376,10 +392,16 @@ async function applyResumenFormat(sheets, spreadsheetId, resumenSheetId, numData
         properties: { sheetId: resumenSheetId, gridProperties: { frozenRowCount: 1, frozenColumnCount: 1 } },
         fields: "gridProperties(frozenRowCount,frozenColumnCount)",
       }},
-      // Columnas de montos (B en adelante): formato numérico
+      // Columnas de montos (B hasta penúltima, excluye Δ): formato numérico
       { repeatCell: {
-        range: { sheetId: resumenSheetId, startRowIndex: 1, endRowIndex: numDataRows + 2, startColumnIndex: 1, endColumnIndex: numCols },
+        range: { sheetId: resumenSheetId, startRowIndex: 1, endRowIndex: numDataRows + 2, startColumnIndex: 1, endColumnIndex: deltaColIdx },
         cell: { userEnteredFormat: { numberFormat: { type: "NUMBER", pattern: "#,##0" } } },
+        fields: "userEnteredFormat.numberFormat",
+      }},
+      // Columna Δ: formato de variación con flechas (▲ positivo, ▼ negativo)
+      { repeatCell: {
+        range: { sheetId: resumenSheetId, startRowIndex: 1, endRowIndex: numDataRows + 2, startColumnIndex: deltaColIdx, endColumnIndex: numCols },
+        cell: { userEnteredFormat: { numberFormat: { type: "NUMBER", pattern: `[>0]"▲ "0%;[<0]"▼ "0%;"—"` } } },
         fields: "userEnteredFormat.numberFormat",
       }},
     ]},
@@ -567,19 +589,25 @@ async function syncAllExpensesToSheet(telegramId, userName) {
     const [y, m] = k.split("-");
     return `${SHEET_MONTHS[parseInt(m) - 1].substring(0, 3)} ${y}`;
   });
-  const headers = ["Categoría", ...colHeaders, "Total"];
+  const headers = ["Categoría", ...colHeaders, "Total", "Δ"];
+
+  const hasTwoMonths = resumenMonths.length >= 2;
+  const delta = (last, prev) => (hasTwoMonths && prev > 0) ? (last - prev) / prev : "";
 
   const catRows = CATEGORIES
     .map(cat => {
       const vals = resumenMonths.map(k => (byMonth[k] || []).filter(e => e.cat === cat).reduce((s, e) => s + e.amt, 0));
       const total = vals.reduce((s, v) => s + v, 0);
-      return total > 0 ? [cat, ...vals, total] : null;
+      if (total === 0) return null;
+      const d = delta(vals[vals.length - 1], vals[vals.length - 2]);
+      return [cat, ...vals, total, d];
     })
     .filter(Boolean);
 
   const monthTotals = resumenMonths.map(k => (byMonth[k] || []).reduce((s, e) => s + e.amt, 0));
   const grandTotal = monthTotals.reduce((s, v) => s + v, 0);
-  const totalRow = ["Total", ...monthTotals, grandTotal];
+  const totalDelta = delta(monthTotals[monthTotals.length - 1], monthTotals[monthTotals.length - 2]);
+  const totalRow = ["Total", ...monthTotals, grandTotal, totalDelta];
 
   await sheets.spreadsheets.values.clear({ spreadsheetId, range: "Resumen!A:Z" });
   await sheets.spreadsheets.values.update({
